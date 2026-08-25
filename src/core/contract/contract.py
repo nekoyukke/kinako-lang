@@ -6,6 +6,6 @@ from src.core.contract.policy.policy import Policy
 
 @dataclass
 class Contract:
-    type:TypeDef
-    right:Right
-    policy:Policy
+    type: TypeDef | None
+    right: Right | None
+    policy: Policy | None

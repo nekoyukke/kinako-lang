@@ -1,31 +1,42 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from src.core.context.id import SymbolId
+from src.core.symbol.symbol import Symbol
 
 @dataclass(slots=True)
 class Scope:
     parent: Scope | None
-    symbols: dict[str, SymbolId]
+    symbols: dict[str, Symbol]
+
+    def names(self) -> list[str]:
+        """Return all visible names, honoring shadowing."""
+        names = list(self.symbols)
+        if self.parent is None:
+            return names
+        return names + [name for name in self.parent.names() if name not in self.symbols]
+
+    def values(self) -> list[Symbol]:
+        """Return all visible symbols, nearest definition first."""
+        return [symbol for name in self.names() if (symbol := self.lookup(name)) is not None]
 
     def get_variable(self) -> list[str]:
-        if self.parent:
-            return self.parent.get_variable()+list(self.symbols.keys())
-        return list(self.symbols.keys())
+        return self.names()
     
-    def check(self, name:str) -> bool:
-        if self.parent:
-            return self.parent.check(name)or (name in self.symbols)
-        return (name in self.symbols)
+    def contains_local(self, name: str) -> bool:
+        return name in self.symbols
+
+    def check(self, name: str) -> bool:
+        return self.lookup(name) is not None
     
-    def lookup(self, name:str) -> SymbolId|None:
+    def lookup(self, name:str) -> Symbol|None:
         if name in self.symbols:
             return self.symbols[name]
         if self.parent:
-            return self.lookup(name)
+            return self.parent.lookup(name)
         return None
 
-    def get_variable_db(self) -> list[SymbolId]:...
+    def get_variable_db(self) -> list[Symbol]:
+        return self.values()
 
-    def define(self, name:str, symbolid: SymbolId):
-        self.symbols[name] = symbolid
+    def define(self, symbol: Symbol) -> None:
+        self.symbols[symbol.name] = symbol

@@ -1,10 +1,9 @@
 from src.frontend.lexer.lexer import *
 from src.frontend.parser.parser import *
-from src.frontend.parser.models.stmt import *
+from src.core.ast.stmt import *
 from src.core.context.context import *
 from src.utils.error.error_lists import *
 from src.frontend.builtin.builtin import *
-from src.frontend.collector.collector import *
 from src.frontend.resolver.resolver import *
 
 
@@ -19,16 +18,13 @@ def parser(source:str, tb:bool=False):
     return stmt
 
 def builtin(context:Context | None = None):
-    ctx = Context({},{},{},{},{},{},{},{},) if context is None else context
+    ctx = Context() if context is None else context
     inject_builtins(ctx)
     return ctx
 
 def collector(source:str, program:ProgramStmt, tb:bool=False, context:Context | None = None):
-    ctx = builtin(context)
-    clt = Collector(program, source, ctx)
-    clt.collect()
-    print(ErrorLists(clt.error).__str__(tb))
-    return ctx
+    # Top-level collection is now Resolver's first pass.
+    return builtin(context)
 
 def resolver(source:str, program:ProgramStmt, ctx:Context, tb:bool=False):
     rso = Resolver(program, source, ctx)

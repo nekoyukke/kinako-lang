@@ -3,7 +3,7 @@ from abc import ABC
 
 from src.core.ast.base import ASTNode, Contract, Parameter
 import src.core.ast.expr as _expr
-from src.core.context.id import SymbolId
+from src.core.symbol.symbol import Symbol
 
 
 @dataclass(repr=False)
@@ -16,7 +16,7 @@ class VariableDeclStmt(Stmt):
     name: _expr.Variable
     contract: Contract
     left: _expr.Expr | None
-    symbolid: SymbolId | None = None
+    symbol: Symbol | None = None
 
 @dataclass(repr=False)
 class FunctionDeclStmt(Stmt):
@@ -24,7 +24,7 @@ class FunctionDeclStmt(Stmt):
     result: Contract
     params: list[Parameter]
     body: Stmt
-    symbolid: SymbolId | None = None
+    symbol: Symbol | None = None
 
 # そのほか
 

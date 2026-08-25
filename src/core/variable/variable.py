@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from src.core.source.source_span import SourceSpan
-from 
+from src.core.contract.contract import Contract
 
 @dataclass
 class VariableDef:

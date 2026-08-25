@@ -7,7 +7,7 @@ from abc import ABC
 
 from src.core.contract.policy.policy import Policy
 from src.core.contract.right.right import Right
-from src.core.context.id import TypeId
+from src.core.contract.type.type import TypeDef
 
 @dataclass
 class Identifier(ABC):
@@ -32,17 +32,17 @@ class Contract:
     right: Identifier | None
     policy: Identifier | None
 
-    type_id: TypeId | None = None
+    type_id: TypeDef | None = None
     right_id: Right | None = None
     policy_id: Policy | None = None
 
 
-from src.core.context.id import SymbolId
+from src.core.symbol.symbol import Symbol
 @dataclass
 class Parameter:
     name: str
     contract: Contract
-    symbol: SymbolId | None = None
+    symbol: Symbol | None = None
     
         
 @dataclass

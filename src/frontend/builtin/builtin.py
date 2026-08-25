@@ -7,10 +7,8 @@ from src.core.source.source_span import *
 zero = SourceSpan(0,0,0)
 
 def inject_builtin_types(ctx:Context):
-    ctx.types.append(IntType(32))
-    ctx.types.append(BooleanType())
-    ctx.buildin_type["int"] = TypeId(0)
-    ctx.buildin_type["bool"] = TypeId(1)
+    ctx.buildin_type["int"] = ctx.intern_type(IntType(32))
+    ctx.buildin_type["bool"] = ctx.intern_type(BooleanType())
 
 def inject_builtin_rights(ctx:Context):
     ctx.right["Unique"] = RealRight(AccessKind.NONE, IdentityKind.UNIQUE)
