@@ -14,8 +14,8 @@ class ExprInfo:
     an earlier check could not determine it.
     """
 
-    type: TypeDef | None = None
-    right: Right | None = None
+    type: TypeDef
+    right: Right
     policy: Policy | None = None
 
 @dataclass(slots=True)
@@ -26,11 +26,13 @@ class Context:
     their ClassSymbol and are deliberately not flattened into this namespace.
     """
 
-    symbols: dict[str, Symbol] = field(default_factory=dict)
-    types: list[TypeDef] = field(default_factory=list)
-    right: dict[str, Right] = field(default_factory=dict)
-    policy: dict[str, Policy] = field(default_factory=dict)
-    buildin_type: dict[str, TypeDef] = field(default_factory=dict)
+    symbols: dict[str, Symbol] = field(default_factory=dict[str, Symbol])
+    types: list[TypeDef] = field(default_factory=list[TypeDef])
+    right: dict[str, Right] = field(default_factory=dict[str, Right])
+    policy: dict[str, Policy] = field(default_factory=dict[str, Policy])
+    buildin_type: dict[str, TypeDef] = field(default_factory=dict[str, TypeDef])
+
+    variable_type: dict[Symbol, TypeDef] = field(default_factory=dict[Symbol, TypeDef])
 
     def define(self, symbol: Symbol) -> None:
         self.symbols[symbol.name] = symbol

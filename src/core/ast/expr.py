@@ -28,9 +28,6 @@ class BinaryExpr(Expr):
 class UnaryKind(Enum):
     PLUS = "+"
     MINUS = "-"
-    MULT = "*"
-    DIV = "/"
-    MOD = "%"
 
 @dataclass(repr=False)
 class UnaryExpr(Expr):

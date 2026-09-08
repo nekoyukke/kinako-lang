@@ -19,6 +19,10 @@ class IntType(BuildinType):
     bit_size: int
 
 @dataclass
+class FloatType(BuildinType):
+    bit_size: int
+
+@dataclass
 class BooleanType(BuildinType):
     pass
 
@@ -39,6 +43,21 @@ class ArrayType(BuildinType):
 class UnionType(BuildinType):
     right: TypeDef
     left: TypeDef
+
+@dataclass
+class LiteralType(TypeDef):
+    pass
+
+@dataclass
+class NumberLiteral(LiteralType):
+    pass
+
+@dataclass
+class FloatingLiteral(LiteralType):
+    pass
+@dataclass
+class StringLiteral(LiteralType):
+    pass
 
 # 定義クラス
 @dataclass

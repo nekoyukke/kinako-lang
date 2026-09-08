@@ -2,6 +2,9 @@
 import src.core.ast.base as _base
 import src.core.ast.stmt as _stmt
 import src.core.ast.expr as _expr
+import src.core.symbol.symbol as sym
+import src.core.contract.type.type as type
+from src.core.contract.right.right import Right, IdentityKind, AccessKind
 from src.core.context.context import Context, ExprInfo
 from src.utils.error.base import KinakoBaseError, KinakoHelp, KinakoRelatedInfo
 from src.utils.error.type import KinakoTypeError
@@ -93,20 +96,66 @@ class Checker:
     def check_expr(self, node: _expr.Expr) -> ExprInfo:
         """Visit one expression once and return its future semantic result."""
         match node:
-            case _expr.Variable() | _expr.Literal():
-                return ExprInfo()
+            case _expr.Variable():
+                match(node.symbol):
+                    case sym.VariableSymbol():
+                        if not (node.symbol.entity.type and node.symbol.entity.right):
+                            raise
+
+                        # if cannnot read
+                        if node.symbol.entity.right.access == AccessKind.NONE:
+                            self.call_error("cannot read access", node)
+
+                        return ExprInfo(node.symbol.entity.type, node.symbol.entity.right, node.symbol.entity.policy)
+
+            case _expr.Literal():
+                match (node):
+                    case _expr.NoneLiteral():
+                        return ExprInfo(type.NoneType(), Right.default())
+                    case _expr.IntLiteral():
+                        return ExprInfo(type.NumberLiteral(), Right.default())
+                    case _expr.FloatLiteral():
+                        return ExprInfo(type.FloatingLiteral(), Right.default())
+                    case _expr.StringLiteral():
+                        return ExprInfo(type.StringLiteral(), Right.default())
+                    case _expr.BoolLiteral():
+                        return ExprInfo(type.BooleanType(), Right.default())
+                    case _:
+                        self.call_error("未設定Literal", node)
+                raise
 
             case _expr.UnaryExpr():
-                self.check_expr(node.expr)
-                return ExprInfo()
+                expr = self.check_expr(node.expr)
+                # TODO: 単項演算用のメソッド実装を確認する
+                if not isinstance(expr.type, type.IntType|type.NumberLiteral|type.FloatType|type.FloatingLiteral):
+                    self.call_error(f"演算に対する設定されていない型'{expr.type.__class__}'", node)
+                return ExprInfo(expr.type, Right.default())
 
-            case (
-                _expr.BinaryExpr()
-                | _expr.LogicExpr()
-                | _expr.AssignExpr()
-            ):
-                self.check_expr(node.left)
-                self.check_expr(node.right)
+            case _expr.BinaryExpr():
+                left = self.check_expr(node.left)
+                right = self.check_expr(node.right)
+                if left.type != right.type:
+                    self.call_error(f"同じ型でないと演算はできません'{left.type.__class__}'と'{right.type.__class__}'", node)
+                # TODO: Add, Sub, Mulなどのメソッド実装を確認する
+                if not isinstance(left.type, type.IntType|type.NumberLiteral|type.FloatType|type.FloatingLiteral):
+                    self.call_error(f"演算に対する設定されていない型'{left.type.__class__}'", node)
+                return ExprInfo(left.type, Right.default())
+            
+            case _expr.LogicExpr():
+                left = self.check_expr(node.left)
+                right = self.check_expr(node.right)
+                if left.type != right.type:
+                    self.call_error(f"同じ型でないと演算はできません'{left.type.__class__}'と'{right.type.__class__}'", node)
+                # TODO:Ne, Eq, Ltなどのメソッド実装を確認する
+                if not isinstance(left.type, type.IntType|type.NumberLiteral|type.FloatType|type.FloatingLiteral):
+                    self.call_error(f"演算に対する設定されていない型'{left.type.__class__}'", node)
+                return ExprInfo(type.BooleanType(), Right.default())
+            
+            case _expr.AssignExpr():
+                left = self.check_expr(node.left)
+                right = self.check_expr(node.right)
+                if left.type != right.type:
+                    self.call_error()
                 return ExprInfo()
 
             case _expr.CallExpr():
@@ -126,7 +175,3 @@ class Checker:
 
             case _:
                 return ExprInfo()
-
-
-# Keep current imports working while callers migrate to Checker.
-TypeChecker = Checker

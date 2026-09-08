@@ -10,7 +10,7 @@ import src.core.context.context as _ctx
 from src.core.contract.contract import Contract
 from src.core.contract.policy.policy import Policy, Policy_Generic, Policy_Union
 from src.core.contract.right.right import (
-    AccessKind, IdentityKind, RealRight, Right, Right_Generic, Right_Union,
+    AccessKind, IdentityKind, Right
 )
 from src.core.scope.scope import Scope
 from src.core.source.source_span import SourceSpan
@@ -121,20 +121,14 @@ class Resolver:
                 self.call_error(f"不明なRight `{identifier.name}` です。", err_node)
             return resolved
         if isinstance(identifier, _base.Union_Identifier):
-            if not identifier.identifiers:
-                self.call_error("空のRight Unionは使用できません。", err_node)
-                return None
-            resolved = self.resolve_right_identifier(identifier.identifiers[0], err_node)
-            for part in identifier.identifiers[1:]:
-                other = self.resolve_right_identifier(part, err_node)
-                resolved = None if resolved is None or other is None else Right_Union(resolved, other)
-            return resolved
+            self.call_error("RightにはUnionは使用できません。", err_node)
+            return None
         if isinstance(identifier, _base.Generic_Identifier):
             generic = self.resolve_right_identifier(identifier.generic, err_node)
             element = self.resolve_right_identifier(identifier.expr, err_node)
             if generic is None or element is None:
                 return None
-            return Right_Generic(generic, element)
+            return Right(generic.access, generic.identity, element)
         self.call_error("解決できないRight識別子です。", err_node)
         return None
 
@@ -209,7 +203,7 @@ class Resolver:
 
         contract = self.resolve_contract(node.contract, node)
         if contract.right is None:
-            contract.right = RealRight(AccessKind.READ, IdentityKind.UNIQUE)
+            contract.right = Right(AccessKind.READ, IdentityKind.UNIQUE)
             node.contract.right_id = contract.right
         symbol = VariableSymbol(name, self._span(node), contract)
         node.symbol = symbol
@@ -269,7 +263,7 @@ class Resolver:
             self.push_scope()
             loop_contract = self.resolve_contract(node.contract, node)
             if loop_contract.right is None:
-                loop_contract.right = RealRight(AccessKind.READ, IdentityKind.UNIQUE)
+                loop_contract.right = Right(AccessKind.READ, IdentityKind.UNIQUE)
                 node.contract.right_id = loop_contract.right
             symbol = VariableSymbol(node.variable.ident, self._span(node.variable), loop_contract)
             node.variable.symbol = symbol

@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from enum import Enum
-from abc import ABC
 
 class AccessKind(Enum):
     NONE = 0
@@ -12,20 +11,11 @@ class IdentityKind(Enum):
     UNIQUE = 1
 
 @dataclass
-class Right(ABC):
-    pass
-
-@dataclass
-class Right_Generic(Right):
-    element: Right
-    out: Right
-
-@dataclass
-class RealRight(Right):
+class Right():
     access: AccessKind
     identity: IdentityKind
+    generic: Right | None = None
 
-@dataclass
-class Right_Union(Right):
-    right: Right
-    left: Right
+    @classmethod
+    def default(cls):
+        return Right(AccessKind.READ, IdentityKind.UNIQUE)
