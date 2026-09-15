@@ -7,34 +7,6 @@ from abc import ABC
 
 
 @dataclass
-class Identifier():
-    name: str
-
-@dataclass
-class Binding():
-    name: Identifier
-
-# 型契約
-@dataclass
-class TypeNode(ABC):
-    pass
-
-@dataclass
-class TypeSyn():
-    is_ref: bool
-    type: Identifier
-    binding: list[Binding]
-
-@dataclass
-class Name(TypeNode):
-    symbol: Identifier
-
-@dataclass
-class Container(TypeNode):
-    base: Name
-    args: list[TypeSyn]
-
-@dataclass
 class ASTNode(ABC):
     """
     ASTノードの基底
@@ -137,3 +109,31 @@ class ASTNode(ABC):
                     if isinstance(item, ASTNode):
                         result.append(item)
         return result
+
+@dataclass
+class Identifier(ASTNode):
+    name: str
+
+@dataclass
+class Binding():
+    name: Identifier
+
+# 型契約
+@dataclass
+class TypeNode(ABC):
+    pass
+
+@dataclass
+class TypeSyn():
+    is_ref: bool
+    type: Identifier
+    binding: list[Binding]
+
+@dataclass
+class Name(TypeNode):
+    symbol: TypeSyn
+
+@dataclass
+class Container(TypeNode):
+    base: Name
+    args: list[TypeSyn]

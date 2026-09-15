@@ -11,6 +11,10 @@ class Expr(ASTNode, ABC):
     pass 
 
 @dataclass(repr=False)
+class Variable(Expr):
+    name: Identifier
+
+@dataclass(repr=False)
 class BinaryExpr(Expr, ABC):
     pass
 
@@ -44,6 +48,18 @@ class IdentityKind(str, Enum):
 @dataclass(repr=False)
 class IdentityExpr(BinaryExpr):
     kind: IdentityKind
+    left: Expr
+    right: Expr
+
+class CompKind(str, Enum):
+    GT = ">"
+    GE = ">="
+    LT = "<"
+    LE = "<="
+
+@dataclass(repr=False)
+class CompExpr(BinaryExpr):
+    kind: CompKind
     left: Expr
     right: Expr
 

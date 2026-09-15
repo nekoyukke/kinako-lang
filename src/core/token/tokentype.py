@@ -11,6 +11,7 @@ class TokenType(Enum):
     NE = r'!='
     LE = r'<='
     GE = r'>='
+    PLUS_ASSIGN = r'\+='
     
     PLUS = r'\+'
     MINUS = r'-'

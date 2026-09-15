@@ -63,22 +63,22 @@ class LocalStmt(DeclStmt, ABC):
 @dataclass(repr=False)
 class LetStmt(LocalStmt):
     left: Identifier
-    right: Expr
-    contract: _base.TypeNode
+    right: Expr | None
+    contract: _base.TypeNode | None
 
 
 @dataclass(repr=False)
 class RefStmt(LocalStmt):
     left: Identifier
-    right: Expr
-    contract: _base.TypeNode
+    right: Expr | None
+    contract: _base.TypeNode | None
 
 
 @dataclass(repr=False)
 class MoveStmt(LocalStmt):
     left: Identifier
-    right: Expr
-    contract: _base.TypeNode
+    right: Expr | None
+    contract: _base.TypeNode | None
 
 
 # =========================
@@ -109,7 +109,7 @@ class FunctionDefStmt(FunctionDeclStmt):
 
 
 @dataclass(repr=False)
-class FunctionPrototypeStmt(FunctionDeclStmt):
+class FunctionRequestStmt(FunctionDeclStmt):
     pass
 
 @dataclass(repr=False)
@@ -124,6 +124,16 @@ class FunctionStmt(FunctionDeclStmt):
 class Block(CompoundStmt):
     stmt: list[Stmt]
 
+@dataclass(repr=False)
+class IfStmt(CompoundStmt):
+    then_block: Stmt
+    else_block: Stmt | None
+    cond: Expr
+
+@dataclass(repr=False)
+class WhileStmt(CompoundStmt):
+    block: Stmt
+    cond: Expr
 
 # =========================
 # Record
@@ -142,7 +152,7 @@ class RecordDeclStmt(DeclStmt):
 @dataclass(repr=False)
 class InterfaceDeclStmt(DeclStmt):
     name: Identifier
-    members: list[FunctionPrototypeStmt]
+    members: list[FunctionRequestStmt]
 
 
 # =========================
@@ -183,3 +193,7 @@ class ImplUseStmt(ClassMemberStmt):
 @dataclass(repr=False)
 class ImplStmt(ClassMemberStmt):
     members: list[FunctionDefStmt]
+
+@dataclass(repr=False)
+class ReturnStmt(SimpleStmt):
+    value: Expr
