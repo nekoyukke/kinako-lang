@@ -21,7 +21,8 @@ class TypeNode(ABC):
 
 @dataclass
 class TypeSyn():
-    type: TypeNode
+    is_ref: bool
+    type: Identifier
     binding: list[Binding]
 
 @dataclass
