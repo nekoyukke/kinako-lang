@@ -49,5 +49,3 @@ venv.bak/
 # IDEs (VSCodeなどは個人設定なので本来はここには書かないほうがベター)
 .vscode/
 .idea/
-
-docs/Use_AI/
