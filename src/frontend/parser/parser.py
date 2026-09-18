@@ -10,9 +10,8 @@ from src.core.ast import expr as _expr
 from src.core.ast import stmt as _stmt
 from src.utils.error.syntax import KinakoSyntaxError
 
-ParsedExpr = _expr.Expr
-ExpressionParser = Callable[[], ParsedExpr]
-BinaryFactory = Callable[[Token, ParsedExpr, ParsedExpr], _expr.Expr]
+ExpressionParser = Callable[[], _expr.Expr]
+BinaryFactory = Callable[[Token, _expr.Expr, _expr.Expr], _expr.Expr]
 
 
 class Parser:
@@ -58,11 +57,11 @@ class Parser:
 
     def identifier(self, message: str) -> _base.Identifier:
         token = self.consume(TokenType.ID, message)
-        return _base.Identifier(token.line, token.column, token.len, token.value)
+        return _base.Identifier(token.value)
     def type_identifier(self, message: str) -> _base.Identifier:
         if self.peek().type in (TokenType.ID, TokenType.NONE):
             token = self.advance()
-            return _base.Identifier(token.line, token.column, token.len, token.value)
+            return _base.Identifier(token.value)
         raise self.error_at(self.peek(), message)
 
     def parse(self) -> _stmt.Program:
@@ -127,9 +126,8 @@ class Parser:
         start = self.advance()
         name = self.identifier("var の後に識別子が必要です")
         typ = self.type_node() if self.match(TokenType.COLON) else None
-        value = self.expression() if self.match(TokenType.ASSIGN) else None
         self.consume(TokenType.SEMI, "var 文の末尾に ';' が必要です")
-        return _stmt.VarDeclStmt(start.line, start.column, start.len, name, typ, value)
+        return _stmt.VarDeclStmt(start.line, start.column, start.len, name, typ)
 
     def block(self) -> _stmt.Block:
         start = self.consume(TokenType.LBRACE, "'{' が必要です")
@@ -176,7 +174,7 @@ class Parser:
         if not self.check(TokenType.RPAREN):
             while True:
                 token = self.consume(TokenType.ID, "引数名が必要です"); self.consume(TokenType.COLON, "引数名の後に ':' が必要です")
-                parms.append(_stmt.Parameter(token.line, token.column, token.len, _base.Identifier(token.line, token.column, token.len, token.value), self.type_node()))
+                parms.append(_stmt.Parameter(token.line, token.column, token.len, _base.Identifier(token.value), self.type_node()))
                 if not self.match(TokenType.COMMA): break
         self.consume(TokenType.RPAREN, "引数リストを ')' で閉じてください"); self.consume(TokenType.ARROW, "戻り値型の前に '->' が必要です")
         return start, name, parms, self.type_node()
@@ -205,7 +203,7 @@ class Parser:
             if not self.check(TokenType.RPAREN):
                 while True:
                     token = self.consume(TokenType.ID, "引数名が必要です"); self.consume(TokenType.COLON, "引数名の後に ':' が必要です")
-                    parms.append(_stmt.Parameter(token.line, token.column, token.len, _base.Identifier(token.line, token.column, token.len, token.value), self.type_node()))
+                    parms.append(_stmt.Parameter(token.line, token.column, token.len, _base.Identifier(token.value), self.type_node()))
                     if not self.match(TokenType.COMMA): break
             self.consume(TokenType.RPAREN, "引数リストを ')' で閉じてください"); self.consume(TokenType.ARROW, "戻り値型の前に '->' が必要です")
             result = self.type_node(); self.consume(TokenType.SEMI, "rq 宣言の末尾に ';' が必要です")
@@ -261,10 +259,10 @@ class Parser:
         return _base.Container(base, args)
 
     # Expressions
-    def expression(self) -> ParsedExpr:
+    def expression(self) -> _expr.Expr:
         return self.assignment()
 
-    def assignment(self) -> ParsedExpr:
+    def assignment(self) -> _expr.Expr:
         left = self.logic_or()
         if self.match(TokenType.ASSIGN):
             token = self.previous(); return _expr.AssignExpr(token.line, token.column, token.len, self.assignment(), left)
@@ -277,30 +275,30 @@ class Parser:
         next_method: ExpressionParser,
         kinds: set[TokenType],
         factory: BinaryFactory,
-    ) -> ParsedExpr:
+    ) -> _expr.Expr:
         left = next_method()
         while self.peek().type in kinds:
             token = self.advance(); left = factory(token, left, next_method())
         return left
-    def logic_or(self) -> ParsedExpr:
+    def logic_or(self) -> _expr.Expr:
         return self.binary(self.logic_and, {TokenType.LOGIC_OR}, lambda t, l, r: _expr.LogicExpr(t.line, t.column, t.len, _expr.LogicKind.OR, l, r))  # type: ignore[arg-type]
 
-    def logic_and(self) -> ParsedExpr:
+    def logic_and(self) -> _expr.Expr:
         return self.binary(self.identity, {TokenType.LOGIC_AND}, lambda t, l, r: _expr.LogicExpr(t.line, t.column, t.len, _expr.LogicKind.AND, l, r))  # type: ignore[arg-type]
 
-    def identity(self) -> ParsedExpr:
+    def identity(self) -> _expr.Expr:
         kinds={TokenType.EQ:_expr.IdentityKind.EQ,TokenType.NE:_expr.IdentityKind.NE}
         return self.binary(self.comparison,set(kinds),lambda t,l,r:_expr.IdentityExpr(t.line,t.column,t.len,kinds[t.type],l,r))
-    def comparison(self) -> ParsedExpr:
+    def comparison(self) -> _expr.Expr:
         kinds={TokenType.LABRACKET:_expr.CompKind.LT,TokenType.RABRACKET:_expr.CompKind.GT,TokenType.LE:_expr.CompKind.LE,TokenType.GE:_expr.CompKind.GE}
         return self.binary(self.term,set(kinds),lambda t,l,r:_expr.CompExpr(t.line,t.column,t.len,kinds[t.type],l,r))
-    def term(self) -> ParsedExpr:
+    def term(self) -> _expr.Expr:
         kinds={TokenType.PLUS:_expr.ArithmeticKind.ADD,TokenType.MINUS:_expr.ArithmeticKind.SUB}
         return self.binary(self.factor,set(kinds),lambda t,l,r:_expr.ArithmeticExpr(t.line,t.column,t.len,kinds[t.type],l,r))
-    def factor(self) -> ParsedExpr:
+    def factor(self) -> _expr.Expr:
         kinds={TokenType.MULT:_expr.ArithmeticKind.MUL,TokenType.DIV:_expr.ArithmeticKind.DIV,TokenType.MOD:_expr.ArithmeticKind.MOD}
         return self.binary(self.postfix,set(kinds),lambda t,l,r:_expr.ArithmeticExpr(t.line,t.column,t.len,kinds[t.type],l,r))
-    def postfix(self) -> ParsedExpr:
+    def postfix(self) -> _expr.Expr:
         value=self.primary()
         while True:
             if self.match(TokenType.LBRACKET):
@@ -310,16 +308,18 @@ class Parser:
                 name=self.identifier("'.' の後にメンバー名が必要です"); token=self.previous()
                 value=_expr.MemberExpr(token.line,token.column,token.len,value,name)
             else: return value
-    def primary(self) -> ParsedExpr:
+    def primary(self) -> _expr.Expr:
         token=self.advance()
         if token.type is TokenType.NUMBER: return _expr.IntegerImmediate(token.line,token.column,token.len,int(token.value))
         if token.type is TokenType.DECIMAL: return _expr.DecimalImmediate(token.line,token.column,token.len,float(token.value))
         if token.type is TokenType.STRING: return _expr.StringImmediate(token.line,token.column,token.len,bytes(token.value[1:-1],"utf-8").decode("unicode_escape"))
         if token.type is TokenType.ID:
-            name = _base.Identifier(token.line, token.column, token.len, token.value)
+            name = _base.Identifier(token.value)
             return _expr.Variable(token.line, token.column, token.len, name)
-        if token.type in (TokenType.NONE, TokenType.NULL):
-            return _base.Identifier(token.line, token.column, token.len, token.value)
+        if token.type == TokenType.NONE:
+            return _expr.NoneImmediate(token.line, token.column, token.len)
+        if token.type == TokenType.NULL:
+            return _expr.NullImmediate(token.line, token.column, token.len)
         if token.type is TokenType.LPAREN:
             value=self.expression(); self.consume(TokenType.RPAREN,"式を ')' で閉じてください"); return value
         raise self.error_at(token, f"式として使えないトークンです: {token.value!r}")

@@ -6,7 +6,7 @@ from enum import Enum
 from abc import ABC
 
 
-@dataclass
+@dataclass(eq=False)
 class ASTNode(ABC):
     """
     ASTノードの基底
@@ -14,6 +14,8 @@ class ASTNode(ABC):
     line: int
     col: int
     len: int
+
+    __hash__ = object.__hash__
 
     def _format_repr(self, indent: int = 0) -> str:
         """再帰的に整形されたAST表現を生成する"""
@@ -111,7 +113,7 @@ class ASTNode(ABC):
         return result
 
 @dataclass
-class Identifier(ASTNode):
+class Identifier():
     name: str
 
 @dataclass
