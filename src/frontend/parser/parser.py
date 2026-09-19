@@ -8,6 +8,7 @@ from src.core.token.tokentype import TokenType
 from src.core.ast import base as _base
 from src.core.ast import expr as _expr
 from src.core.ast import stmt as _stmt
+from src.utils.error.code import ErrorCode
 from src.utils.error.syntax import KinakoSyntaxError
 
 ExpressionParser = Callable[[], _expr.Expr]
@@ -43,26 +44,32 @@ class Parser:
             return True
         return False
 
-    def error_at(self, token: Token, message: str) -> KinakoSyntaxError:
+    def error_at(
+        self, code: ErrorCode, token: Token, detail: str | None = None
+    ) -> KinakoSyntaxError:
+        message = f"[{code.code}] {code.message}"
+        if detail is not None:
+            message = f"{message}: {detail}"
         error = KinakoSyntaxError(
             message, token.line, token.column, self.source, token.len
         )
         self.error.append(error)
         return error
 
-    def consume(self, kind: TokenType, message: str) -> Token:
+    def consume(self, kind: TokenType) -> Token:
         if self.check(kind):
             return self.advance()
-        raise self.error_at(self.peek(), message)
+        raise self.error_at(ErrorCode.SYNTAX_EXPECTED_TOKEN, self.peek(), kind.name)
 
-    def identifier(self, message: str) -> _base.Identifier:
-        token = self.consume(TokenType.ID, message)
+    def identifier(self) -> _base.Identifier:
+        token = self.consume(TokenType.ID)
         return _base.Identifier(token.value)
-    def type_identifier(self, message: str) -> _base.Identifier:
+
+    def type_identifier(self) -> _base.Identifier:
         if self.peek().type in (TokenType.ID, TokenType.NONE):
             token = self.advance()
             return _base.Identifier(token.value)
-        raise self.error_at(self.peek(), message)
+        raise self.error_at(ErrorCode.SYNTAX_EXPECTED_TYPE, self.peek())
 
     def parse(self) -> _stmt.Program:
         result: list[_stmt.Stmt] = []
@@ -84,7 +91,7 @@ class Parser:
             case TokenType.RETURN:
                 return self.return_statement()
             case TokenType.FOR:
-                raise self.error_at(self.peek(), "for は現在未実装です")
+                raise self.error_at(ErrorCode.SYNTAX_UNSUPPORTED_STATEMENT, self.peek(), "FOR")
             case TokenType.RECORD:
                 return self.record_declaration()
             case TokenType.INTERFACE:
@@ -97,44 +104,44 @@ class Parser:
                 return self.block()
             case _:
                 result = self.expression()
-                self.consume(TokenType.SEMI, "文の末尾に ';' が必要です")
+                self.consume(TokenType.SEMI)
                 return result  # type: ignore[return-value]
 
     def let_statement(self) -> _stmt.LocalStmt:
         start = self.advance()
-        left = self.identifier("let の後に識別子が必要です")
+        left = self.identifier()
         contract: _base.TypeNode | None = None
         if self.match(TokenType.COLON):
             if self.match(TokenType.MOVE):
                 right = self.expression()
-                self.consume(TokenType.SEMI, "move 文の末尾に ';' が必要です")
+                self.consume(TokenType.SEMI)
                 return _stmt.MoveStmt(start.line, start.column, start.len, left, right, None)
             contract = self.type_node()
         if self.match(TokenType.REF):
             right = self.expression()
-            self.consume(TokenType.SEMI, "ref 文の末尾に ';' が必要です")
+            self.consume(TokenType.SEMI)
             return _stmt.RefStmt(start.line, start.column, start.len, left, right, contract)
         if self.match(TokenType.MOVE):
             right = self.expression()
-            self.consume(TokenType.SEMI, "move 文の末尾に ';' が必要です")
+            self.consume(TokenType.SEMI)
             return _stmt.MoveStmt(start.line, start.column, start.len, left, right, contract)
         right = self.expression() if self.match(TokenType.ASSIGN) else None
-        self.consume(TokenType.SEMI, "let 文の末尾に ';' が必要です")
+        self.consume(TokenType.SEMI)
         return _stmt.LetStmt(start.line, start.column, start.len, left, right, contract)  # type: ignore[arg-type]
 
     def var_statement(self) -> _stmt.VarDeclStmt:
         start = self.advance()
-        name = self.identifier("var の後に識別子が必要です")
+        name = self.identifier()
         typ = self.type_node() if self.match(TokenType.COLON) else None
-        self.consume(TokenType.SEMI, "var 文の末尾に ';' が必要です")
+        self.consume(TokenType.SEMI)
         return _stmt.VarDeclStmt(start.line, start.column, start.len, name, typ)
 
     def block(self) -> _stmt.Block:
-        start = self.consume(TokenType.LBRACE, "'{' が必要です")
+        start = self.consume(TokenType.LBRACE)
         result: list[_stmt.Stmt] = []
         while not self.check(TokenType.RBRACE):
             if self.is_at_end():
-                raise self.error_at(self.peek(), "block が閉じられていません")
+                raise self.error_at(ErrorCode.SYNTAX_UNCLOSED_BLOCK, self.peek())
             result.append(self.statement())
         self.advance()
         return _stmt.Block(start.line, start.column, start.len, result)
@@ -162,21 +169,21 @@ class Parser:
 
     def return_statement(self) -> _stmt.ReturnStmt:
         start = self.advance(); value = self.expression()
-        self.consume(TokenType.SEMI, "return 文の末尾に ';' が必要です")
+        self.consume(TokenType.SEMI)
         return _stmt.ReturnStmt(start.line, start.column, start.len, value)
 
     # Declarations
     def function_header(
         self, token_type: TokenType
     ) -> tuple[Token, _base.Identifier, list[_stmt.Parameter], _base.TypeNode]:
-        start = self.consume(token_type, "関数キーワードが必要です"); name = self.identifier("関数名が必要です")
-        self.consume(TokenType.LPAREN, "関数名の後に '(' が必要です"); parms: list[_stmt.Parameter] = []
+        start = self.consume(token_type); name = self.identifier()
+        self.consume(TokenType.LPAREN); parms: list[_stmt.Parameter] = []
         if not self.check(TokenType.RPAREN):
             while True:
-                token = self.consume(TokenType.ID, "引数名が必要です"); self.consume(TokenType.COLON, "引数名の後に ':' が必要です")
+                token = self.consume(TokenType.ID); self.consume(TokenType.COLON)
                 parms.append(_stmt.Parameter(token.line, token.column, token.len, _base.Identifier(token.value), self.type_node()))
                 if not self.match(TokenType.COMMA): break
-        self.consume(TokenType.RPAREN, "引数リストを ')' で閉じてください"); self.consume(TokenType.ARROW, "戻り値型の前に '->' が必要です")
+        self.consume(TokenType.RPAREN); self.consume(TokenType.ARROW)
         return start, name, parms, self.type_node()
 
     def function_declaration(self) -> _stmt.FunctionStmt:
@@ -187,55 +194,56 @@ class Parser:
         return _stmt.FunctionDefStmt(start.line, start.column, start.len, name, parms, result, self.block())
 
     def record_declaration(self) -> _stmt.RecordDeclStmt:
-        start = self.advance(); name = self.identifier("record 名が必要です"); self.consume(TokenType.LBRACE, "record の本体に '{' が必要です")
+        start = self.advance(); name = self.identifier(); self.consume(TokenType.LBRACE)
         members: list[_stmt.DeclStmt] = []
         while not self.check(TokenType.RBRACE):
-            if not self.check(TokenType.VAR): raise self.error_at(self.peek(), "record には var 宣言だけを書けます")
+            if not self.check(TokenType.VAR):
+                raise self.error_at(ErrorCode.SYNTAX_INVALID_RECORD_MEMBER, self.peek())
             members.append(self.var_statement())
         self.advance(); return _stmt.RecordDeclStmt(start.line, start.column, start.len, name, members)
 
     def interface_declaration(self) -> _stmt.InterfaceDeclStmt:
-        start = self.advance(); name = self.identifier("interface 名が必要です"); self.consume(TokenType.LBRACE, "interface の本体に '{' が必要です")
+        start = self.advance(); name = self.identifier(); self.consume(TokenType.LBRACE)
         members: list[_stmt.FunctionRequestStmt] = []
         while not self.check(TokenType.RBRACE):
-            rq = self.consume(TokenType.RQ, "interface には rq 宣言だけを書けます"); fn = self.identifier("要求関数名が必要です")
-            self.consume(TokenType.LPAREN, "関数名の後に '(' が必要です"); parms: list[_stmt.Parameter] = []
+            rq = self.consume(TokenType.RQ); fn = self.identifier()
+            self.consume(TokenType.LPAREN); parms: list[_stmt.Parameter] = []
             if not self.check(TokenType.RPAREN):
                 while True:
-                    token = self.consume(TokenType.ID, "引数名が必要です"); self.consume(TokenType.COLON, "引数名の後に ':' が必要です")
+                    token = self.consume(TokenType.ID); self.consume(TokenType.COLON)
                     parms.append(_stmt.Parameter(token.line, token.column, token.len, _base.Identifier(token.value), self.type_node()))
                     if not self.match(TokenType.COMMA): break
-            self.consume(TokenType.RPAREN, "引数リストを ')' で閉じてください"); self.consume(TokenType.ARROW, "戻り値型の前に '->' が必要です")
-            result = self.type_node(); self.consume(TokenType.SEMI, "rq 宣言の末尾に ';' が必要です")
+            self.consume(TokenType.RPAREN); self.consume(TokenType.ARROW)
+            result = self.type_node(); self.consume(TokenType.SEMI)
             members.append(_stmt.FunctionRequestStmt(rq.line, rq.column, rq.len, fn, parms, result))
         self.advance(); return _stmt.InterfaceDeclStmt(start.line, start.column, start.len, name, members)
 
     def class_declaration(self) -> _stmt.ClassDeclStmt:
-        start = self.advance(); name = self.identifier("class 名が必要です"); self.consume(TokenType.LBRACE, "class の本体に '{' が必要です")
+        start = self.advance(); name = self.identifier(); self.consume(TokenType.LBRACE)
         members: list[_stmt.ClassMemberStmt] = []
         while not self.check(TokenType.RBRACE):
             if self.match(TokenType.STRUCT):
                 token = self.previous()
                 if self.match(TokenType.USE):
-                    target = self.identifier("struct use の対象が必要です"); self.consume(TokenType.SEMI, "struct use の末尾に ';' が必要です")
+                    target = self.identifier(); self.consume(TokenType.SEMI)
                     members.append(_stmt.StructUseStmt(token.line, token.column, token.len, target))
                 else: members.append(self.struct_declaration(token))
             elif self.match(TokenType.IMPL): members.append(self.impl_declaration(self.previous()))
-            else: raise self.error_at(self.peek(), "class には struct または impl だけを書けます")
+            else: raise self.error_at(ErrorCode.SYNTAX_INVALID_CLASS_MEMBER, self.peek())
         self.advance(); return _stmt.ClassDeclStmt(start.line, start.column, start.len, name, members)
 
     def struct_declaration(self, start: Token) -> _stmt.StructDeclStmt:
-        self.consume(TokenType.LBRACE, "struct の本体に '{' が必要です"); members: list[_stmt.VarDeclStmt] = []
+        self.consume(TokenType.LBRACE); members: list[_stmt.VarDeclStmt] = []
         while not self.check(TokenType.RBRACE):
-            if not self.check(TokenType.VAR): raise self.error_at(self.peek(), "struct には var 宣言だけを書けます")
+            if not self.check(TokenType.VAR): raise self.error_at(ErrorCode.SYNTAX_INVALID_STRUCT_MEMBER, self.peek())
             members.append(self.var_statement())
         self.advance(); return _stmt.StructDeclStmt(start.line, start.column, start.len, members)
 
     def impl_declaration(self, start: Token) -> _stmt.ClassMemberStmt:
-        interface = self.identifier("impl use の対象 interface が必要です") if self.match(TokenType.USE) else None
-        self.consume(TokenType.LBRACE, "impl の本体に '{' が必要です"); members: list[_stmt.FunctionDefStmt] = []
+        interface = self.identifier() if self.match(TokenType.USE) else None
+        self.consume(TokenType.LBRACE); members: list[_stmt.FunctionDefStmt] = []
         while not self.check(TokenType.RBRACE):
-            if not self.check(TokenType.DEF): raise self.error_at(self.peek(), "impl には def 宣言だけを書けます")
+            if not self.check(TokenType.DEF): raise self.error_at(ErrorCode.SYNTAX_INVALID_IMPL_MEMBER, self.peek())
             members.append(self.function_definition())
         self.advance()
         return _stmt.ImplUseStmt(start.line, start.column, start.len, interface, members) if interface else _stmt.ImplStmt(start.line, start.column, start.len, members)
@@ -243,18 +251,18 @@ class Parser:
     # Types
     def bindings(self) -> list[_base.Binding]:
         result: list[_base.Binding] = []
-        while self.match(TokenType.AT): result.append(_base.Binding(self.identifier("'@' の後に binding 名が必要です")))
+        while self.match(TokenType.AT): result.append(_base.Binding(self.identifier()))
         return result
     def type_node(self) -> _base.TypeNode:
-        base_name = self.type_identifier("型名が必要です")
+        base_name = self.type_identifier()
         if not self.match(TokenType.LBRACKET):
             return _base.Name(_base.TypeSyn(False, base_name, self.bindings()))
         args: list[_base.TypeSyn] = []
         while not self.check(TokenType.RBRACKET):
-            is_ref = self.match(TokenType.REF); arg = self.type_identifier("コンテナ型の引数が必要です")
+            is_ref = self.match(TokenType.REF); arg = self.type_identifier()
             args.append(_base.TypeSyn(is_ref, arg, self.bindings()))
             if not self.match(TokenType.COMMA): break
-        self.consume(TokenType.RBRACKET, "コンテナ型を ']' で閉じてください")
+        self.consume(TokenType.RBRACKET)
         base = _base.Name(_base.TypeSyn(False, base_name, self.bindings()))
         return _base.Container(base, args)
 
@@ -302,10 +310,10 @@ class Parser:
         value=self.primary()
         while True:
             if self.match(TokenType.LBRACKET):
-                index=self.expression(); end=self.consume(TokenType.RBRACKET,"添字を ']' で閉じてください")
+                index=self.expression(); end=self.consume(TokenType.RBRACKET)
                 value=_expr.IndexExpr(end.line,end.column,end.len,value,index)
             elif self.match(TokenType.DOT):
-                name=self.identifier("'.' の後にメンバー名が必要です"); token=self.previous()
+                name=self.identifier(); token=self.previous()
                 value=_expr.MemberExpr(token.line,token.column,token.len,value,name)
             else: return value
     def primary(self) -> _expr.Expr:
@@ -321,5 +329,5 @@ class Parser:
         if token.type == TokenType.NULL:
             return _expr.NullImmediate(token.line, token.column, token.len)
         if token.type is TokenType.LPAREN:
-            value=self.expression(); self.consume(TokenType.RPAREN,"式を ')' で閉じてください"); return value
-        raise self.error_at(token, f"式として使えないトークンです: {token.value!r}")
+            value=self.expression(); self.consume(TokenType.RPAREN); return value
+        raise self.error_at(ErrorCode.SYNTAX_INVALID_EXPRESSION, token, token.value)

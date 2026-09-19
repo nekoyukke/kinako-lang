@@ -2,6 +2,7 @@ import re
 
 from src.core.token.token import Token
 from src.core.token.tokentype import TokenType
+from src.utils.error.code import ErrorCode
 from src.utils.error.syntax import KinakoSyntaxError
 
 class Lexer():
@@ -20,6 +21,15 @@ class Lexer():
 
         return re.compile("|".join(patterns))
 
+    def error_at(
+        self, code: ErrorCode, token: Token, detail: str | None = None
+    ) -> KinakoSyntaxError:
+        message = f"[{code.code}] {code.message}"
+        if detail is not None:
+            message = f"{message}: {detail}"
+        return KinakoSyntaxError(
+            message, token.line, token.column, self.source, token.len
+        )
 
     def tokenize(self) -> list[Token]:
         tokens: list[Token] = []
@@ -29,12 +39,9 @@ class Lexer():
             if mo is None:
                 line = self.source.count("\n", 0, offset) + 1
                 column = offset - self.source.rfind("\n", 0, offset)
-                raise KinakoSyntaxError(
-                    f"予期しない文字: {self.source[offset]!r}",
-                    line,
-                    column,
-                    self.source,
-                    1,
+                token = Token(TokenType.EOF, self.source[offset], line, column, 1)
+                raise self.error_at(
+                    ErrorCode.LEX_UNEXPECTED_CHARACTER, token, self.source[offset]
                 )
             kind_name = mo.lastgroup
             value = mo.group()
@@ -42,7 +49,8 @@ class Lexer():
             line = self.source.count("\n", 0, start) + 1
             col = start - self.source.rfind("\n", 0, start)
             if kind_name is None:
-                raise RuntimeError("token pattern did not name a token type")
+                token = Token(TokenType.EOF, value, line, col, len(value))
+                raise self.error_at(ErrorCode.LEX_INVALID_TOKEN_PATTERN, token)
         
             # kind_name (Enumの名前) から直接 Enumオブジェクトを取得
             kind = TokenType[kind_name]

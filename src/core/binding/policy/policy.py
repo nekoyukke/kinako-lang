@@ -11,5 +11,5 @@ class Mutex(Policy):
     pass
 
 @dataclass
-class Mutex(Policy):
+class NoPolicy(Policy):
     pass

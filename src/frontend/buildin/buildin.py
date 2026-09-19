@@ -3,6 +3,7 @@
 from src.core.context.context import context
 from src.core.binding.type import type
 from src.core.binding.right import right
+from src.core.binding.policy import policy
 
 def add_buildins(target: context) -> None:
     """Add built-in types, rights, policies, and declarations to ``target``."""
@@ -24,5 +25,5 @@ def add_buildins(target: context) -> None:
 
     target.general.types["none"] = type.NoneType()
 
-    target.general.default_policy
+    target.general.default_policy = policy.NoPolicy()
     target.general.default_right = right.Right(right.AccessKind.READ, right.IdentityKind.UNIQUE)

@@ -29,6 +29,7 @@ from src.core.symbol import (
     VarSymbol,
 )
 from src.utils.error.collector import KinakoCollectorError
+from src.utils.error.code import ErrorCode
 
 
 SymbolT = TypeVar("SymbolT", bound=Symbol)
@@ -132,7 +133,7 @@ class Collector:
             self._declare_global(
                 self.context.general.top_function,
                 symbol,
-                "top-level function",
+                statement,
             )
 
         for parameter in statement.parms:
@@ -143,7 +144,7 @@ class Collector:
 
     def _collect_record(self, record: _stmt.RecordDeclStmt) -> None:
         symbol = RecordSymbol(self._span(record), record.name.name)
-        self._declare_global(self.context.general.records, symbol, "record")
+        self._declare_global(self.context.general.records, symbol, record)
         self._declare_type(symbol.name, record)
         self.context.general.sym[record] = symbol
 
@@ -153,7 +154,7 @@ class Collector:
             if not isinstance(member, _stmt.VarDeclStmt):
                 continue
             field = VarSymbol(self._span(member), member.name.name)
-            self._declare_member(by_name, field, member, "record field")
+            self._declare_member(by_name, field, member)
             self.context.general.sym[member] = field
             if member.type is not None:
                 self._schedule_binding(field, member.type, member)
@@ -163,7 +164,7 @@ class Collector:
 
     def _collect_interface(self, interface: _stmt.InterfaceDeclStmt) -> None:
         symbol = InterfaceSymbol(self._span(interface), interface.name.name)
-        self._declare_global(self.context.general.interfaces, symbol, "interface")
+        self._declare_global(self.context.general.interfaces, symbol, interface)
         self._declare_type(symbol.name, interface)
         self.context.general.sym[interface] = symbol
 
@@ -171,7 +172,7 @@ class Collector:
         by_name: dict[str, RQSymbol] = {}
         for request in interface.members:
             request_symbol = RQSymbol(self._span(request), request.name.name)
-            self._declare_member(by_name, request_symbol, request, "interface request")
+            self._declare_member(by_name, request_symbol, request)
             self.context.general.sym[request] = request_symbol
             for parameter in request.parms:
                 parameter_symbol = ParameterSymbol(
@@ -185,7 +186,7 @@ class Collector:
 
     def _collect_class(self, class_: _stmt.ClassDeclStmt) -> None:
         symbol = ClassSymbol(self._span(class_), class_.name.name)
-        self._declare_global(self.context.general.classes, symbol, "class")
+        self._declare_global(self.context.general.classes, symbol, class_)
         self._declare_type(symbol.name, class_)
         self.context.general.sym[class_] = symbol
 
@@ -224,7 +225,7 @@ class Collector:
         members: list[StructSymbol],
         by_name: dict[str, StructSymbol],
     ) -> None:
-        self._declare_member(by_name, symbol, node, "class struct")
+        self._declare_member(by_name, symbol, node)
         self.context.general.sym[node] = symbol
         members.append(symbol)
 
@@ -238,7 +239,7 @@ class Collector:
         fields_by_name: dict[str, VarSymbol] = {}
         for member in node.members:
             field = VarSymbol(self._span(member), member.name.name)
-            self._declare_member(fields_by_name, field, member, "struct field")
+            self._declare_member(fields_by_name, field, member)
             self.context.general.sym[member] = field
             if member.type is not None:
                 self._schedule_binding(field, member.type, member)
@@ -254,7 +255,7 @@ class Collector:
         members: list[ImplSymbol],
         by_name: dict[str, ImplSymbol],
     ) -> None:
-        self._declare_member(by_name, symbol, node, "class impl")
+        self._declare_member(by_name, symbol, node)
         self.context.general.sym[node] = symbol
         members.append(symbol)
 
@@ -267,7 +268,7 @@ class Collector:
         definitions_by_name: dict[str, DefSymbol] = {}
         for definition in node.members:
             definition_symbol = DefSymbol(self._span(definition), definition.name.name)
-            self._declare_member(definitions_by_name, definition_symbol, definition, "impl definition")
+            self._declare_member(definitions_by_name, definition_symbol, definition)
             self.context.general.sym[definition] = definition_symbol
             definitions.append(definition_symbol)
             self._collect_definition_body(definition, symbol)
@@ -299,13 +300,13 @@ class Collector:
             elif isinstance(symbol, VarSymbol):
                 self.context.contract.var[symbol] = binding
             else:
-                raise RuntimeError
+                raise self.error_at(ErrorCode.INTERNAL_INVALID_COLLECTED_SYMBOL, node)
 
     def _declare_global(
-        self, table: dict[str, SymbolT], symbol: SymbolT, kind: str
+        self, table: dict[str, SymbolT], symbol: SymbolT, node: ASTNode
     ) -> None:
         if symbol.name in table:
-            raise self._error(f"duplicate {kind}: {symbol.name}", symbol.span)
+            raise self.error_at(ErrorCode.COLLECT_DUPLICATE_DECLARATION, node, symbol.name)
         table[symbol.name] = symbol
 
     def _declare_member(
@@ -313,15 +314,14 @@ class Collector:
         table: dict[str, SymbolT],
         symbol: SymbolT,
         node: ASTNode,
-        kind: str,
     ) -> None:
         if symbol.name in table:
-            raise self._error(f"duplicate {kind}: {symbol.name}", node)
+            raise self.error_at(ErrorCode.COLLECT_DUPLICATE_DECLARATION, node, symbol.name)
         table[symbol.name] = symbol
 
     def _declare_type(self, name: str, node: ASTNode) -> None:
         if name in self.context.general.types:
-            raise self._error(f"duplicate type declaration: {name}", node)
+            raise self.error_at(ErrorCode.COLLECT_DUPLICATE_TYPE, node, name)
         self.context.general.types[name] = UserDefType()
 
     def _binding_for(
@@ -342,7 +342,7 @@ class Collector:
                 ]
                 return AppliedBinding(atomic, args)
             case _:
-                raise self._error("unsupported type contract", node)
+                raise self.error_at(ErrorCode.COLLECT_UNSUPPORTED_TYPE_CONTRACT, node)
 
     def _atomic_binding(
         self, type_syn: _base.TypeSyn, node: ASTNode
@@ -350,7 +350,7 @@ class Collector:
         type_name = type_syn.type.name
         type_def = self.context.general.types.get(type_name)
         if type_def is None:
-            raise self._error(f"unknown type: {type_name}", node)
+            raise self.error_at(ErrorCode.COLLECT_UNKNOWN_TYPE, node, type_name)
 
         right = self.context.general.default_right
         policy = self.context.general.default_policy
@@ -362,20 +362,21 @@ class Collector:
             if annotation_name in self.context.general.policies:
                 policy = self.context.general.policies[annotation_name]
                 continue
-            raise self._error(f"unknown right or policy: @{annotation_name}", node)
+            raise self.error_at(ErrorCode.COLLECT_UNKNOWN_BINDING, node, annotation_name)
         return AtomicBinding(type_def, right, policy, type_syn.is_ref)
 
-    def _error(self, message: str, location: ASTNode | Span) -> KinakoCollectorError:
-        if isinstance(location, ASTNode):
-            span = self._span(location)
-        else:
-            span = location
+    def error_at(
+        self, code: ErrorCode, node: ASTNode, detail: str | None = None
+    ) -> KinakoCollectorError:
+        message = f"[{code.code}] {code.message}"
+        if detail is not None:
+            message = f"{message}: {detail}"
         return KinakoCollectorError(
             message,
-            span.line,
-            span.col,
+            node.line,
+            node.col,
             self.source,
-            span.len,
+            node.len,
         )
 
     @staticmethod

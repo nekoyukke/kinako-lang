@@ -19,6 +19,7 @@ from src.core.symbol import (
     Symbol,
 )
 from src.utils.error.resolve import KinakoResolveError
+from src.utils.error.code import ErrorCode
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,7 @@ class Resolver:
             case _stmt.ExprStmt():
                 self._resolve_expr(statement.expr)
             case _:
-                raise RuntimeError
+                raise self.error_at(ErrorCode.INTERNAL_UNSUPPORTED_AST, statement)
 
     def _resolve_block(self, block: _stmt.Block) -> None:
         self._enter_scope()
@@ -81,7 +82,7 @@ class Resolver:
             for statement in block.stmt:
                 self._resolve_statement(statement)
         finally:
-            self._leave_scope()
+            self._leave_scope(block)
 
     def _resolve_local(
         self, statement: _stmt.LetStmt | _stmt.RefStmt | _stmt.MoveStmt
@@ -104,7 +105,7 @@ class Resolver:
                 self._resolve_parameter(parameter)
             self._resolve_block(function.body)
         finally:
-            self._leave_scope()
+            self._leave_scope(function)
 
     def _resolve_definition(self, definition: _stmt.FunctionDefStmt) -> None:
         self._resolve_type(definition.result, definition)
@@ -114,7 +115,7 @@ class Resolver:
                 self._resolve_parameter(parameter)
             self._resolve_block(definition.body)
         finally:
-            self._leave_scope()
+            self._leave_scope(definition)
 
     def _resolve_parameter(self, parameter: _stmt.Parameter) -> None:
         self._resolve_type(parameter.type, parameter)
@@ -154,19 +155,19 @@ class Resolver:
     def _resolve_struct_use(self, struct_use: _stmt.StructUseStmt) -> None:
         record = self.context.general.records.get(struct_use.name.name)
         if record is None:
-            raise self._error(f"unknown record: {struct_use.name.name}", struct_use)
+            raise self.error_at(ErrorCode.RESOLVE_UNKNOWN_RECORD, struct_use, struct_use.name.name)
         symbol = self._symbol_for(struct_use)
         if not isinstance(symbol, StructSymbol):
-            raise self._error("collector symbol is not a struct", struct_use)
+            raise self.error_at(ErrorCode.RESOLVE_INVALID_STRUCT_SYMBOL, struct_use)
         self.context.general.record_struct[symbol] = record
 
     def _resolve_impl_use(self, impl_use: _stmt.ImplUseStmt) -> None:
         interface = self.context.general.interfaces.get(impl_use.interface.name)
         if interface is None:
-            raise self._error(f"unknown interface: {impl_use.interface.name}", impl_use)
+            raise self.error_at(ErrorCode.RESOLVE_UNKNOWN_INTERFACE, impl_use, impl_use.interface.name)
         symbol = self._symbol_for(impl_use)
         if not isinstance(symbol, ImplSymbol):
-            raise self._error("collector symbol is not an impl", impl_use)
+            raise self.error_at(ErrorCode.RESOLVE_INVALID_IMPL_SYMBOL, impl_use)
         self.context.general.interface_impl[symbol] = interface
 
     def _resolve_type(self, type_node: _base.TypeNode, node: ASTNode) -> None:
@@ -178,22 +179,22 @@ class Resolver:
                 for argument in type_node.args:
                     self._resolve_type_syn(argument, node)
             case _:
-                raise self._error("unsupported type contract", node)
+                raise self.error_at(ErrorCode.RESOLVE_UNSUPPORTED_TYPE_CONTRACT, node)
 
     def _resolve_type_syn(self, type_syn: _base.TypeSyn, node: ASTNode) -> None:
         if type_syn.type.name not in self.context.general.types:
-            raise self._error(f"unknown type: {type_syn.type.name}", node)
+            raise self.error_at(ErrorCode.RESOLVE_UNKNOWN_TYPE, node, type_syn.type.name)
         for annotation in type_syn.binding:
             name = annotation.name.name
             if name not in self.context.general.rights and name not in self.context.general.policies:
-                raise self._error(f"unknown right or policy: @{name}", node)
+                raise self.error_at(ErrorCode.RESOLVE_UNKNOWN_BINDING, node, name)
 
     def _resolve_expr(self, expression: _expr.Expr) -> None:
         match expression:
             case _expr.Variable():
                 symbol = self.current_scope.look_up(expression.name.name)
                 if symbol is None:
-                    raise self._error(f"unknown name: {expression.name.name}", expression)
+                    raise self.error_at(ErrorCode.RESOLVE_UNKNOWN_NAME, expression, expression.name.name)
                 self.context.general.sym[expression] = symbol
             case _expr.MemberExpr():
                 self._resolve_expr(expression.expr)
@@ -212,29 +213,34 @@ class Resolver:
             case _expr.Immediate():
                 return
             case _:
-                raise RuntimeError
+                raise self.error_at(ErrorCode.INTERNAL_UNSUPPORTED_AST, expression)
 
     def _enter_scope(self) -> None:
         self.current_scope = Scope(parent=self.current_scope, symbol={})
 
-    def _leave_scope(self) -> None:
+    def _leave_scope(self, node: ASTNode) -> None:
         parent = self.current_scope.parent
         if parent is None:
-            raise RuntimeError("cannot leave the root scope")
+            raise self.error_at(ErrorCode.INTERNAL_INVALID_SCOPE_EXIT, node)
         self.current_scope = parent
 
     def _declare(self, symbol: Symbol, node: ASTNode) -> None:
         if not isinstance(symbol, (LetSymbol, ParameterSymbol, FunctionSymbol)):
-            raise self._error("symbol cannot be declared in a lexical scope", node)
+            raise self.error_at(ErrorCode.RESOLVE_INVALID_LEXICAL_SYMBOL, node)
         if symbol.name in self.current_scope.symbol:
-            raise self._error(f"duplicate declaration in scope: {symbol.name}", node)
+            raise self.error_at(ErrorCode.RESOLVE_DUPLICATE_DECLARATION, node, symbol.name)
         self.current_scope.symbol[symbol.name] = symbol
 
     def _symbol_for(self, node: ASTNode) -> Symbol:
         symbol = self.context.general.sym.get(node)
         if symbol is None:
-            raise self._error("collector symbol is missing", node)
+            raise self.error_at(ErrorCode.RESOLVE_MISSING_COLLECTED_SYMBOL, node)
         return symbol
 
-    def _error(self, message: str, node: ASTNode) -> KinakoResolveError:
+    def error_at(
+        self, code: ErrorCode, node: ASTNode, detail: str | None = None
+    ) -> KinakoResolveError:
+        message = f"[{code.code}] {code.message}"
+        if detail is not None:
+            message = f"{message}: {detail}"
         return KinakoResolveError(message, node.line, node.col, self.source, node.len)

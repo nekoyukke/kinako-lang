@@ -9,7 +9,9 @@ from src.core.ast import expr as _expr
 from src.core.ast import stmt as _stmt
 from src.core.ast.base import ASTNode
 from src.core.context.context import context
+from src.core.symbol import symbol
 from src.utils.error.checker import KinakoCheckerError
+from src.utils.error.code import ErrorCode
 from src.core.binding.binding import *
 
 
@@ -23,6 +25,7 @@ class Checker:
     def __init__(self, checked_context: context, source: str = "") -> None:
         self.context = checked_context
         self.source = source
+        self.return_type:TypeDef
 
     def check(self, program: _stmt.Program) -> CheckResult:
         # this
@@ -69,7 +72,7 @@ class Checker:
                 self.visit_expression(statement.expr)
                 return False
             case _:
-                raise self._error("不明なエラー", statement)
+                raise self.error_at(ErrorCode.CHECK_UNSUPPORTED_AST, statement)
 
     def visit_let_statement(self, statement: _stmt.LetStmt) -> bool:
         # this
@@ -187,17 +190,34 @@ class Checker:
             case _expr.NullImmediate():
                 return self.visit_null_immediate(expression)
             case _:
-                raise self._error("不明なエラー", expression)
+                raise self.error_at(ErrorCode.CHECK_UNSUPPORTED_AST, expression)
 
-    def _error(self, message: str, node: ASTNode) -> KinakoCheckerError:
+    def error_at(
+        self, code: ErrorCode, node: ASTNode, detail: str | None = None
+    ) -> KinakoCheckerError:
+        message = f"[{code.code}] {code.message}"
+        if detail is not None:
+            message = f"{message}: {detail}"
         return KinakoCheckerError(message, node.line, node.col, self.source, node.len)
 
-    def _type_error(self) -> KinakoCheckerError:
-        return KinakoCheckerError("", 1, 1, self.source, 0)
-
     def visit_variable(self, expression: _expr.Variable) -> Binding:
-        # this
-        return 
+        # this]
+        sym = self.context.general.sym[expression]
+        match (sym):
+            case symbol.LetSymbol():
+                return self.context.contract.let[sym]
+            case symbol.VarSymbol():
+                return self.context.contract.var[sym]
+            case symbol.DefSymbol():
+                return self.context.contract.define[sym]
+            case symbol.FunctionSymbol():
+                return self.context.contract.function[sym]
+            case symbol.ParameterSymbol():
+                return self.context.contract.parameter[sym]
+            case symbol.RQSymbol():
+                return self.context.contract.rq[sym]
+            case _:
+                raise self.error_at(ErrorCode.INTERNAL_INVALID_COLLECTED_SYMBOL, expression)
 
     def visit_member_expression(self, expression: _expr.MemberExpr) -> Binding:
         # this
@@ -209,7 +229,13 @@ class Checker:
 
     def visit_arithmetic_expression(self, expression: _expr.ArithmeticExpr) -> Binding:
         # this
-        pass
+        right = self.visit_expression(expression.right)
+        left = self.visit_expression(expression.left)
+        if not isinstance(right, AtomicBinding):
+            raise self.error_at(ErrorCode.CHECK_GENERIC_ARITHMETIC, expression.right)
+        if not isinstance(left, AtomicBinding):
+            # this
+            pass
 
     def visit_logic_expression(self, expression: _expr.LogicExpr) -> Binding:
         # this
