@@ -97,14 +97,22 @@ class Parser:
         match self.peek().type:
             case TokenType.LET:
                 return self.let_statement()
+            case TokenType.UNSAFE:
+                return self.unsafe_statement()
+            case TokenType.IMPORT:
+                return self.import_statement()
             case TokenType.VAR:
-                return self.var_statement()
+                raise self.error_at(
+                    self.peek(), ErrorCode.SYNTAX_UNSUPPORTED_STATEMENT, "VAR"
+                )
             case TokenType.WHILE:
                 return self.while_statement()
             case TokenType.IF:
                 return self.if_statement()
             case TokenType.RETURN:
                 return self.return_statement()
+            case TokenType.ASM:
+                return self.asm_statement()
             case TokenType.FOR:
                 raise self.error_at(self.peek(), ErrorCode.SYNTAX_UNSUPPORTED_STATEMENT, "FOR")
             case TokenType.RECORD:
@@ -127,6 +135,23 @@ class Parser:
                     result,
                 )
 
+    def unsafe_statement(self) -> _stmt.UnsafeStmt:
+        start = self.advance()
+        match self.peek().type:
+            case TokenType.LET:
+                inner = self.let_statement()
+            case TokenType.RETURN:
+                inner = self.return_statement()
+            case TokenType.ASM:
+                inner = self.asm_statement()
+            case TokenType.IMPORT | TokenType.IF | TokenType.WHILE | TokenType.FN | TokenType.CLASS | TokenType.RECORD | TokenType.INTERFACE | TokenType.LBRACE:
+                raise self.error_at(self.peek(), ErrorCode.SYNTAX_UNSUPPORTED_STATEMENT, "unsafe requires a SimpleStmt")
+            case _:
+                expression = self.expression()
+                self.consume(TokenType.SEMI)
+                inner = _stmt.ExprStmt(expression.line, expression.col, expression.len, expression)
+        return _stmt.UnsafeStmt(start.line, start.column, start.len, inner)
+
     def let_statement(self) -> _stmt.LocalStmt:
         start = self.advance()
         left = self.identifier()
@@ -148,6 +173,14 @@ class Parser:
         right = self.expression() if self.match(TokenType.ASSIGN) else None
         self.consume(TokenType.SEMI)
         return _stmt.LetStmt(start.line, start.column, start.len, left, right, contract)  # type: ignore[arg-type]
+
+    def import_statement(self) -> _stmt.ImportStmt:
+        start = self.advance()
+        path = [self.identifier()]
+        while self.match(TokenType.DOT):
+            path.append(self.identifier())
+        self.consume(TokenType.SEMI)
+        return _stmt.ImportStmt(start.line, start.column, start.len, path)
 
     def var_statement(self) -> _stmt.VarDeclStmt:
         start = self.advance()
@@ -191,6 +224,15 @@ class Parser:
         start = self.advance(); value = self.expression()
         self.consume(TokenType.SEMI)
         return _stmt.ReturnStmt(start.line, start.column, start.len, value)
+
+    def asm_statement(self) -> _stmt.AsmStmt:
+        start = self.advance()
+        self.consume(TokenType.LPAREN)
+        template = self.consume(TokenType.STRING)
+        self.consume(TokenType.RPAREN)
+        self.consume(TokenType.SEMI)
+        value = bytes(template.value[1:-1], "utf-8").decode("unicode_escape")
+        return _stmt.AsmStmt(start.line, start.column, start.len, value)
 
     # Declarations
     def function_header(

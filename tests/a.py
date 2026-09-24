@@ -23,6 +23,12 @@ class Cat {
             return none;
         }
     }
+    impl {
+        def birthday(self:Cat@owner) -> int {
+            self.Animal.age = self.Animal.age + 1;
+            return self.Animal.age;
+        }
+    }
 }
 
 let x = 1;
@@ -31,12 +37,14 @@ fn main() -> int {
     let Taro: Cat @owner;
     Taro.Animal.speed = 1;
     Taro.Animal.age = 18;
-    return 0;
+    Taro.birthday();
+    return Taro.Animal.age;
 }
 """
 
 Collector.clear()
 program = parse(text)
+print(program)
 ctx = collect(program, text)
 ctx = resolve(program, ctx, text)
 ctx = check(program, ctx, text)

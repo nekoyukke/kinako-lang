@@ -101,6 +101,8 @@ class ErrorCode(Enum):
     CHECK_REFERENCE_TARGET_OUTLIVES_SOURCE = ("K4047", "reference target must not outlive its source")  # ref の借用先が貸与元より長命
     CHECK_REFERENCE_TARGET_ALREADY_ACTIVE = ("K4048", "reference target already has an active reference")  # ref の借用先は二重にできない
     CHECK_CONDITIONAL_MOVE_MISMATCH = ("K4049", "move differs between control-flow paths")  # 分岐経路ごとに move 元／先が異なる
+    CHECK_CONTROL_FLOW_STATE_MISMATCH = ("K4050", "state differs between control-flow paths")  # 分岐経路ごとに初期化状態が異なる
+    CHECK_UNINITIALIZED_READ = ("K4051", "cannot read an uninitialized value")  # 初期化前の値を読めない
 
     def __init__(self, code: str, message: str) -> None:
         self.code = code

@@ -77,6 +77,16 @@ class CheckerTest(unittest.TestCase):
             "K4031",
         )
 
+    def test_allows_read_of_uninitialized_typed_let(self) -> None:
+        frontend(
+            """
+            fn main() -> int {
+                let value: int @owner;
+                return value;
+            }
+            """
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,12 +8,13 @@ from src.core.ast import base as _base
 from src.core.ast import expr as _expr
 from src.core.ast import stmt as _stmt
 from src.core.ast.base import ASTNode
-from src.core.context.context import context
+from src.core.context.context import Context
 from src.core.scope.scope import Scope
 from src.core.symbol import (
     FunctionSymbol,
     ImplSymbol,
     LetSymbol,
+    ModuleSymbol,
     ParameterSymbol,
     StructSymbol,
     Symbol,
@@ -25,13 +26,13 @@ from src.utils.error.code import ErrorCode
 
 @dataclass(frozen=True)
 class ResolveResult:
-    context: context
+    context: Context
 
 
 class Resolver:
     """Resolve names while constructing temporary lexical Scopes."""
 
-    def __init__(self, resolved_context: context, source: str = "") -> None:
+    def __init__(self, resolved_context: Context, source: str = "") -> None:
         self.context = resolved_context
         self.source = source
         self.current_scope = Scope(parent=None, symbol={})
@@ -52,6 +53,10 @@ class Resolver:
 
     def _resolve_statement(self, statement: _stmt.Stmt, *, top_level: bool = False) -> None:
         match statement:
+            case _stmt.ImportStmt():
+                self._resolve_import(statement)
+            case _stmt.UnsafeStmt():
+                self._resolve_statement(statement.inner, top_level=top_level)
             case _stmt.LetStmt() | _stmt.RefStmt() | _stmt.MoveStmt():
                 self._resolve_local(statement)
             case _stmt.VarDeclStmt():
@@ -78,8 +83,14 @@ class Resolver:
                 self._resolve_expr(statement.value)
             case _stmt.ExprStmt():
                 self._resolve_expr(statement.expr)
+            case _stmt.AsmStmt():
+                return
             case _:
                 raise self.error_at(ErrorCode.INTERNAL_UNSUPPORTED_AST, statement)
+
+    def _resolve_import(self, statement: _stmt.ImportStmt) -> None:
+        symbol = self._symbol_for(statement)
+        self._declare(symbol, statement)
 
     def _resolve_block(self, block: _stmt.Block) -> None:
         self._enter_scope()
@@ -244,11 +255,13 @@ class Resolver:
 
     def _declare(self, symbol: Symbol, node: ASTNode) -> None:
         if not isinstance(
-            symbol, (LetSymbol, VarSymbol, ParameterSymbol, FunctionSymbol)
+            symbol, (LetSymbol, VarSymbol, ParameterSymbol, FunctionSymbol, ModuleSymbol)
         ):
             raise self.error_at(ErrorCode.RESOLVE_INVALID_LEXICAL_SYMBOL, node)
         if symbol.name in self.current_scope.symbol:
             raise self.error_at(ErrorCode.RESOLVE_DUPLICATE_DECLARATION, node, symbol.name)
+        if isinstance(symbol, VarSymbol):
+            raise self.error_at(ErrorCode.RESOLVE_INVALID_LEXICAL_SYMBOL, node)
         self.current_scope.symbol[symbol.name] = symbol
         self.context.general.scope_depth[symbol] = self.scope_depth
 

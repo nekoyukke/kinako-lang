@@ -43,6 +43,8 @@ class TokenType(Enum):
     CLASS = r'class\b'
     MOVE = r'move\b'
     REF = r'ref\b'
+    UNSAFE = r'unsafe\b'
+    ASM = r'__asm__\b'
 
     RECORD = r'record\b'
     IMPL = r'impl\b'
@@ -69,9 +71,9 @@ class TokenType(Enum):
 
     # 可変
     DECIMAL = r'\d+\.\d+'
-    SKIP = r'\s+'
     STRING = r'"(\\.|[^"\\])*"'
     NUMBER  = r'\d+'
+    SKIP = r'\s+'
     ID = r'[a-zA-Z_][a-zA-Z0-9_]*'
 
 

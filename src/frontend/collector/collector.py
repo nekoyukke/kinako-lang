@@ -12,7 +12,7 @@ from src.core.binding.binding import AppliedBinding, AtomicBinding, Binding
 from src.core.binding.policy.policy import Policy
 from src.core.binding.right.right import AccessKind, IdentityKind, Right
 from src.core.binding.type.type import FunctionType, UserDefType
-from src.core.context.context import DeclarationContext, GeneralContext, context
+from src.core.context.context import DeclarationContext, GeneralContext, Context
 from src.core.span import Span
 from src.core.symbol import (
     ClassSymbol,
@@ -21,6 +21,7 @@ from src.core.symbol import (
     ImplSymbol,
     InterfaceSymbol,
     LetSymbol,
+    ModuleSymbol,
     ParameterSymbol,
     RQSymbol,
     RecordSymbol,
@@ -37,7 +38,7 @@ SymbolT = TypeVar("SymbolT", bound=Symbol)
 
 @dataclass(frozen=True)
 class CollectionResult:
-    context: context
+    context: Context
 
 
 class Collector:
@@ -49,10 +50,10 @@ class Collector:
     )
 
     def __init__(
-        self, collected_context: context | None = None, source: str = ""
+        self, collected_context: Context | None = None, source: str = ""
     ) -> None:
         if collected_context is None:
-            collected_context = context(
+            collected_context = Context(
                 DeclarationContext(),
                 GeneralContext(
                     default_policy=Policy(),
@@ -96,6 +97,14 @@ class Collector:
         top_level: bool = False,
     ) -> None:
         match statement:
+            case _stmt.ImportStmt():
+                self.context.general.sym[statement] = ModuleSymbol(
+                    self._span(statement), statement.path[-1].name
+                )
+                return
+            case _stmt.UnsafeStmt():
+                self._collect_statement(statement.inner, top_level=top_level)
+                return
             case _stmt.LetStmt() | _stmt.RefStmt() | _stmt.MoveStmt():
                 self._collect_let(statement)
             case _stmt.VarDeclStmt():
@@ -316,15 +325,24 @@ class Collector:
         self,
         definition: _stmt.FunctionDefStmt,
         owner: ImplSymbol,
-        symbol: DefSymbol,
+        definition_symbol: DefSymbol,
         class_owner: ClassSymbol,
     ) -> None:
         # impl 内の def も通常の関数と同じシグネチャを持ち、再帰呼び出しに使われる。
-        self._pending_definitions.append((symbol, definition, class_owner))
+        self._pending_definitions.append(
+            (definition_symbol, definition, class_owner)
+        )
         for parameter in definition.parms:
-            symbol = ParameterSymbol(self._span(parameter), parameter.name.name)
-            self.context.general.sym[parameter] = symbol
-            self._schedule_binding(symbol, parameter.type, parameter)
+            parameter_symbol = ParameterSymbol(
+                self._span(parameter),
+                parameter.name.name,
+            )
+            self.context.general.sym[parameter] = parameter_symbol
+            self._schedule_binding(
+                parameter_symbol,
+                parameter.type,
+                parameter,
+            )
         self._collect_block(definition.body)
 
     def _schedule_binding(

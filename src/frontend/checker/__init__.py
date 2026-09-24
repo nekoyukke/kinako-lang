@@ -1,4 +1,4 @@
-from src.frontend.checker.checker import CheckResult, Checker, ExprResult, Loan, Place
+from src.frontend.checker.checker import CheckResult, Checker, ExprResult, Loan
 from src.utils.error.checker import KinakoCheckerError
 
 CheckerError = KinakoCheckerError
@@ -9,6 +9,5 @@ __all__ = [
     "CheckerError",
     "ExprResult",
     "Loan",
-    "Place",
     "KinakoCheckerError",
 ]
