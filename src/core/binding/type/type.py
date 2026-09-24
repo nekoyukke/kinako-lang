@@ -24,6 +24,10 @@ class PtrType(TypeDef):
     pass
 
 @dataclass
+class BoolType(TypeDef):
+    pass
+
+@dataclass
 class NoneType(TypeDef):
     pass
 
@@ -33,4 +37,24 @@ class FunctionType(TypeDef):
 
 @dataclass
 class UserDefType(TypeDef):
+    name:str
+
+@dataclass
+class ImmediateType(TypeDef):
+    pass
+
+@dataclass
+class IntegerImmediateType(ImmediateType):
+    pass
+
+@dataclass
+class DecimalImmediateType(ImmediateType):
+    pass
+
+@dataclass
+class StringImmediateType(ImmediateType):
+    pass
+
+@dataclass
+class containerImmediateType(ImmediateType):
     pass

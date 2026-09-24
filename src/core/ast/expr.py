@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from abc import ABC
 
-from src.core.ast.base import ASTNode, Identifier, Binding
+from src.core.ast.base import ASTNode, Identifier
+from src.core.binding.binding import Binding as SemanticBinding
 
 @dataclass(repr=False, eq=False)
 class Expr(ASTNode, ABC):
@@ -78,6 +79,12 @@ class MemberExpr(AccessExpr):
     name: Identifier
 
 @dataclass(repr=False, eq=False)
+class CallExpr(AccessExpr):
+    """callee(args...)。callee 自身も MemberExpr などの後置式になれる。"""
+    callee: Expr
+    args: list[Expr]
+
+@dataclass(repr=False, eq=False)
 class UnaryExpr(Expr, ABC):
     pass
 
@@ -127,4 +134,4 @@ class AssignExpr(DataExpr):
 class RefExpr(DataExpr):
     right: Expr
     left: Expr
-    split_right: Binding | None
+    split_right: SemanticBinding | None

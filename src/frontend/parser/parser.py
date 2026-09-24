@@ -45,13 +45,13 @@ class Parser:
         return False
 
     def error_at(
-        self, code: ErrorCode, token: Token, detail: str | None = None
+        self, token: Token, code: ErrorCode, message: str | None = None
     ) -> KinakoSyntaxError:
-        message = f"[{code.code}] {code.message}"
-        if detail is not None:
-            message = f"{message}: {detail}"
+        rendered_message = f"[{code.code}] {code.message}"
+        if message is not None:
+            rendered_message = f"{rendered_message}: {message}"
         error = KinakoSyntaxError(
-            message, token.line, token.column, self.source, token.len
+            rendered_message, token.line, token.column, self.source, token.len
         )
         self.error.append(error)
         return error
@@ -59,7 +59,22 @@ class Parser:
     def consume(self, kind: TokenType) -> Token:
         if self.check(kind):
             return self.advance()
-        raise self.error_at(ErrorCode.SYNTAX_EXPECTED_TOKEN, self.peek(), kind.name)
+        codes = {
+            TokenType.ID: ErrorCode.SYNTAX_EXPECTED_IDENTIFIER,
+            TokenType.SEMI: ErrorCode.SYNTAX_EXPECTED_SEMICOLON,
+            TokenType.LPAREN: ErrorCode.SYNTAX_EXPECTED_OPEN_PAREN,
+            TokenType.RPAREN: ErrorCode.SYNTAX_EXPECTED_CLOSE_PAREN,
+            TokenType.LBRACE: ErrorCode.SYNTAX_EXPECTED_OPEN_BRACE,
+            TokenType.RBRACE: ErrorCode.SYNTAX_EXPECTED_CLOSE_BRACE,
+            TokenType.RBRACKET: ErrorCode.SYNTAX_EXPECTED_CLOSE_BRACKET,
+            TokenType.COLON: ErrorCode.SYNTAX_EXPECTED_COLON,
+            TokenType.ARROW: ErrorCode.SYNTAX_EXPECTED_ARROW,
+            TokenType.RQ: ErrorCode.SYNTAX_EXPECTED_INTERFACE_REQUEST,
+            TokenType.FN: ErrorCode.SYNTAX_EXPECTED_FUNCTION,
+            TokenType.DEF: ErrorCode.SYNTAX_EXPECTED_DEFINITION,
+        }
+        code = codes.get(kind, ErrorCode.SYNTAX_EXPECTED_TOKEN)
+        raise self.error_at(self.peek(), code, kind.name)
 
     def identifier(self) -> _base.Identifier:
         token = self.consume(TokenType.ID)
@@ -69,7 +84,7 @@ class Parser:
         if self.peek().type in (TokenType.ID, TokenType.NONE):
             token = self.advance()
             return _base.Identifier(token.value)
-        raise self.error_at(ErrorCode.SYNTAX_EXPECTED_TYPE, self.peek())
+        raise self.error_at(self.peek(), ErrorCode.SYNTAX_EXPECTED_TYPE)
 
     def parse(self) -> _stmt.Program:
         result: list[_stmt.Stmt] = []
@@ -91,7 +106,7 @@ class Parser:
             case TokenType.RETURN:
                 return self.return_statement()
             case TokenType.FOR:
-                raise self.error_at(ErrorCode.SYNTAX_UNSUPPORTED_STATEMENT, self.peek(), "FOR")
+                raise self.error_at(self.peek(), ErrorCode.SYNTAX_UNSUPPORTED_STATEMENT, "FOR")
             case TokenType.RECORD:
                 return self.record_declaration()
             case TokenType.INTERFACE:
@@ -105,7 +120,12 @@ class Parser:
             case _:
                 result = self.expression()
                 self.consume(TokenType.SEMI)
-                return result  # type: ignore[return-value]
+                return _stmt.ExprStmt(
+                    result.line,
+                    result.col,
+                    result.len,
+                    result,
+                )
 
     def let_statement(self) -> _stmt.LocalStmt:
         start = self.advance()
@@ -141,7 +161,7 @@ class Parser:
         result: list[_stmt.Stmt] = []
         while not self.check(TokenType.RBRACE):
             if self.is_at_end():
-                raise self.error_at(ErrorCode.SYNTAX_UNCLOSED_BLOCK, self.peek())
+                raise self.error_at(self.peek(), ErrorCode.SYNTAX_UNCLOSED_BLOCK)
             result.append(self.statement())
         self.advance()
         return _stmt.Block(start.line, start.column, start.len, result)
@@ -198,7 +218,7 @@ class Parser:
         members: list[_stmt.DeclStmt] = []
         while not self.check(TokenType.RBRACE):
             if not self.check(TokenType.VAR):
-                raise self.error_at(ErrorCode.SYNTAX_INVALID_RECORD_MEMBER, self.peek())
+                raise self.error_at(self.peek(), ErrorCode.SYNTAX_INVALID_RECORD_MEMBER)
             members.append(self.var_statement())
         self.advance(); return _stmt.RecordDeclStmt(start.line, start.column, start.len, name, members)
 
@@ -229,13 +249,13 @@ class Parser:
                     members.append(_stmt.StructUseStmt(token.line, token.column, token.len, target))
                 else: members.append(self.struct_declaration(token))
             elif self.match(TokenType.IMPL): members.append(self.impl_declaration(self.previous()))
-            else: raise self.error_at(ErrorCode.SYNTAX_INVALID_CLASS_MEMBER, self.peek())
+            else: raise self.error_at(self.peek(), ErrorCode.SYNTAX_INVALID_CLASS_MEMBER)
         self.advance(); return _stmt.ClassDeclStmt(start.line, start.column, start.len, name, members)
 
     def struct_declaration(self, start: Token) -> _stmt.StructDeclStmt:
         self.consume(TokenType.LBRACE); members: list[_stmt.VarDeclStmt] = []
         while not self.check(TokenType.RBRACE):
-            if not self.check(TokenType.VAR): raise self.error_at(ErrorCode.SYNTAX_INVALID_STRUCT_MEMBER, self.peek())
+            if not self.check(TokenType.VAR): raise self.error_at(self.peek(), ErrorCode.SYNTAX_INVALID_STRUCT_MEMBER)
             members.append(self.var_statement())
         self.advance(); return _stmt.StructDeclStmt(start.line, start.column, start.len, members)
 
@@ -243,7 +263,7 @@ class Parser:
         interface = self.identifier() if self.match(TokenType.USE) else None
         self.consume(TokenType.LBRACE); members: list[_stmt.FunctionDefStmt] = []
         while not self.check(TokenType.RBRACE):
-            if not self.check(TokenType.DEF): raise self.error_at(ErrorCode.SYNTAX_INVALID_IMPL_MEMBER, self.peek())
+            if not self.check(TokenType.DEF): raise self.error_at(self.peek(), ErrorCode.SYNTAX_INVALID_IMPL_MEMBER)
             members.append(self.function_definition())
         self.advance()
         return _stmt.ImplUseStmt(start.line, start.column, start.len, interface, members) if interface else _stmt.ImplStmt(start.line, start.column, start.len, members)
@@ -254,16 +274,17 @@ class Parser:
         while self.match(TokenType.AT): result.append(_base.Binding(self.identifier()))
         return result
     def type_node(self) -> _base.TypeNode:
+        is_ref = self.match(TokenType.REF)
         base_name = self.type_identifier()
         if not self.match(TokenType.LBRACKET):
-            return _base.Name(_base.TypeSyn(False, base_name, self.bindings()))
+            return _base.Name(_base.TypeSyn(is_ref, base_name, self.bindings()))
         args: list[_base.TypeSyn] = []
         while not self.check(TokenType.RBRACKET):
             is_ref = self.match(TokenType.REF); arg = self.type_identifier()
             args.append(_base.TypeSyn(is_ref, arg, self.bindings()))
             if not self.match(TokenType.COMMA): break
         self.consume(TokenType.RBRACKET)
-        base = _base.Name(_base.TypeSyn(False, base_name, self.bindings()))
+        base = _base.Name(_base.TypeSyn(is_ref, base_name, self.bindings()))
         return _base.Container(base, args)
 
     # Expressions
@@ -277,6 +298,11 @@ class Parser:
         if self.match(TokenType.PLUS_ASSIGN):
             token = self.previous(); right = self.assignment()
             return _expr.AssignExpr(token.line, token.column, token.len, _expr.ArithmeticExpr(token.line, token.column, token.len, _expr.ArithmeticKind.ADD, left, right), left)
+        if self.match(TokenType.REF):
+            token = self.previous()
+            return _expr.RefExpr(
+                token.line, token.column, token.len, self.assignment(), left, None
+            )
         return left
     def binary(
         self,
@@ -315,9 +341,31 @@ class Parser:
             elif self.match(TokenType.DOT):
                 name=self.identifier(); token=self.previous()
                 value=_expr.MemberExpr(token.line,token.column,token.len,value,name)
+            elif self.match(TokenType.LPAREN):
+                # 後置式の直後に括弧を許すため、`obj.method()` も同じ経路で構文解析する。
+                args: list[_expr.Expr] = []
+                if not self.check(TokenType.RPAREN):
+                    while True:
+                        args.append(self.expression())
+                        if not self.match(TokenType.COMMA):
+                            break
+                end = self.consume(TokenType.RPAREN)
+                value = _expr.CallExpr(end.line, end.column, end.len, value, args)
             else: return value
     def primary(self) -> _expr.Expr:
         token=self.advance()
+        if token.type is TokenType.LBRACKET:
+            # 空配列と任意個の式からなるコンテナ即値をここで構文解析する。
+            values: list[_expr.Expr] = []
+            if not self.check(TokenType.RBRACKET):
+                while True:
+                    values.append(self.expression())
+                    if not self.match(TokenType.COMMA):
+                        break
+            self.consume(TokenType.RBRACKET)
+            return _expr.ContainerImmediate(
+                token.line, token.column, token.len, values
+            )
         if token.type is TokenType.NUMBER: return _expr.IntegerImmediate(token.line,token.column,token.len,int(token.value))
         if token.type is TokenType.DECIMAL: return _expr.DecimalImmediate(token.line,token.column,token.len,float(token.value))
         if token.type is TokenType.STRING: return _expr.StringImmediate(token.line,token.column,token.len,bytes(token.value[1:-1],"utf-8").decode("unicode_escape"))
@@ -330,4 +378,4 @@ class Parser:
             return _expr.NullImmediate(token.line, token.column, token.len)
         if token.type is TokenType.LPAREN:
             value=self.expression(); self.consume(TokenType.RPAREN); return value
-        raise self.error_at(ErrorCode.SYNTAX_INVALID_EXPRESSION, token, token.value)
+        raise self.error_at(token, ErrorCode.SYNTAX_INVALID_EXPRESSION, token.value)

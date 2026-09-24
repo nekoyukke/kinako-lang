@@ -33,9 +33,13 @@ kinako-langの仕様について記述する
 `Ref` は `Host` から `Right` を分割して、貸与されることである。
 `Ref` 解放時に、 `Host` 群に `Right` は返却される
 
+### Member
+
+`Member` とは、ある `Variable` からの支配的な部分 `Storage` への従属 `Binding` である。
+
 #### Host
 
-`Host` とは `Storage` への最初の `Binding` を持った `Variable` である。
+`Host` とは、 `Member` にとっての支配的な `Variable` である。
 
 ### Policy
 
@@ -63,7 +67,3 @@ kinako-langの仕様について記述する
 ### Projection
 
 ### Allocator
-
-### Error
-
-### Async

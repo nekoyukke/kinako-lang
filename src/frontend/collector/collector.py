@@ -11,7 +11,7 @@ from src.core.ast.base import ASTNode
 from src.core.binding.binding import AppliedBinding, AtomicBinding, Binding
 from src.core.binding.policy.policy import Policy
 from src.core.binding.right.right import AccessKind, IdentityKind, Right
-from src.core.binding.type.type import UserDefType
+from src.core.binding.type.type import FunctionType, UserDefType
 from src.core.context.context import DeclarationContext, GeneralContext, context
 from src.core.span import Span
 from src.core.symbol import (
@@ -63,6 +63,13 @@ class Collector:
         self.context = collected_context
         self.source = source
         self._pending_bindings: list[tuple[Symbol, _base.TypeNode, ASTNode]] = []
+        self._pending_functions: list[tuple[FunctionSymbol, _stmt.FunctionStmt]] = []
+        self._pending_requests: list[
+            tuple[RQSymbol, _stmt.FunctionRequestStmt]
+        ] = []
+        self._pending_definitions: list[
+            tuple[DefSymbol, _stmt.FunctionDefStmt, ClassSymbol]
+        ] = []
 
     @classmethod
     def clear(cls) -> None:
@@ -74,6 +81,9 @@ class Collector:
 
     def collect(self, program: _stmt.Program) -> CollectionResult:
         self._pending_bindings.clear()
+        self._pending_functions.clear()
+        self._pending_requests.clear()
+        self._pending_definitions.clear()
         for statement in program.stmt:
             self._collect_statement(statement, top_level=True)
         self._bind()
@@ -88,6 +98,8 @@ class Collector:
         match statement:
             case _stmt.LetStmt() | _stmt.RefStmt() | _stmt.MoveStmt():
                 self._collect_let(statement)
+            case _stmt.VarDeclStmt():
+                self._collect_var(statement)
             case _stmt.FunctionStmt():
                 self._collect_function(statement, top_level=top_level)
             case _stmt.RecordDeclStmt():
@@ -121,6 +133,13 @@ class Collector:
         if statement.contract is not None:
             self._schedule_binding(symbol, statement.contract, statement)
 
+    def _collect_var(self, statement: _stmt.VarDeclStmt) -> None:
+        """var は初期値なしでも、後の代入先になる型契約を登録する。"""
+        symbol = VarSymbol(self._span(statement), statement.name.name)
+        self.context.general.sym[statement] = symbol
+        if statement.type is not None:
+            self._schedule_binding(symbol, statement.type, statement)
+
     def _collect_function(
         self,
         statement: _stmt.FunctionStmt,
@@ -135,6 +154,7 @@ class Collector:
                 symbol,
                 statement,
             )
+        self._pending_functions.append((symbol, statement))
 
         for parameter in statement.parms:
             parameter_symbol = ParameterSymbol(self._span(parameter), parameter.name.name)
@@ -180,6 +200,8 @@ class Collector:
                 )
                 self.context.general.sym[parameter] = parameter_symbol
                 self._schedule_binding(parameter_symbol, parameter.type, parameter)
+            # rq も def と同じ関数シグネチャとして、後で impl と比較する。
+            self._pending_requests.append((request_symbol, request))
             requests.append(request_symbol)
         self.context.general.rq_interface[symbol] = requests
         self.context.general.rqs_by_name[symbol] = by_name
@@ -194,6 +216,7 @@ class Collector:
         structs_by_name: dict[str, StructSymbol] = {}
         impls: list[ImplSymbol] = []
         impls_by_name: dict[str, ImplSymbol] = {}
+        definitions_by_name: dict[str, DefSymbol] = {}
         for member in class_.members:
             if isinstance(member, _stmt.StructUseStmt):
                 struct = StructSymbol(self._span(member), member.name.name)
@@ -210,12 +233,20 @@ class Collector:
                     else self._anonymous_name("impl", member)
                 )
                 impl = ImplSymbol(self._span(member), name)
-                self._collect_impl(symbol, impl, member, impls, impls_by_name)
+                self._collect_impl(
+                    symbol,
+                    impl,
+                    member,
+                    impls,
+                    impls_by_name,
+                    definitions_by_name,
+                )
 
         self.context.general.struct_cls[symbol] = structs
         self.context.general.structs_by_name[symbol] = structs_by_name
         self.context.general.impl_cls[symbol] = impls
         self.context.general.impls_by_name[symbol] = impls_by_name
+        self.context.general.class_defs_by_name[symbol] = definitions_by_name
 
     def _collect_struct(
         self,
@@ -254,6 +285,7 @@ class Collector:
         node: _stmt.ImplUseStmt | _stmt.ImplStmt,
         members: list[ImplSymbol],
         by_name: dict[str, ImplSymbol],
+        class_definitions_by_name: dict[str, DefSymbol],
     ) -> None:
         self._declare_member(by_name, symbol, node)
         self.context.general.sym[node] = symbol
@@ -269,15 +301,26 @@ class Collector:
         for definition in node.members:
             definition_symbol = DefSymbol(self._span(definition), definition.name.name)
             self._declare_member(definitions_by_name, definition_symbol, definition)
+            self._declare_member(
+                class_definitions_by_name, definition_symbol, definition
+            )
             self.context.general.sym[definition] = definition_symbol
             definitions.append(definition_symbol)
-            self._collect_definition_body(definition, symbol)
+            self._collect_definition_body(
+                definition, symbol, definition_symbol, owner
+            )
         self.context.general.define_impl[symbol] = definitions
         self.context.general.defs_by_name[symbol] = definitions_by_name
 
     def _collect_definition_body(
-        self, definition: _stmt.FunctionDefStmt, owner: ImplSymbol
+        self,
+        definition: _stmt.FunctionDefStmt,
+        owner: ImplSymbol,
+        symbol: DefSymbol,
+        class_owner: ClassSymbol,
     ) -> None:
+        # impl 内の def も通常の関数と同じシグネチャを持ち、再帰呼び出しに使われる。
+        self._pending_definitions.append((symbol, definition, class_owner))
         for parameter in definition.parms:
             symbol = ParameterSymbol(self._span(parameter), parameter.name.name)
             self.context.general.sym[parameter] = symbol
@@ -302,6 +345,55 @@ class Collector:
             else:
                 raise self.error_at(ErrorCode.INTERNAL_INVALID_COLLECTED_SYMBOL, node)
 
+        for symbol, function in self._pending_functions:
+            self.context.contract.function[symbol] = self._function_binding(function)
+
+        for symbol, request in self._pending_requests:
+            self.context.contract.rq[symbol] = self._function_binding(request)
+
+        for symbol, definition, class_owner in self._pending_definitions:
+            self.context.contract.define[symbol] = self._function_binding(
+                definition, class_owner
+            )
+
+    def _function_binding(
+        self,
+        function: _stmt.FunctionDeclStmt,
+        receiver_class: ClassSymbol | None = None,
+    ) -> AppliedBinding:
+        """宣言どおりの ``function[result, parameter0, ...]`` を作る。
+
+        ``impl`` の def は暗黙 receiver を持たない。先頭に明示された引数が
+        所属 Class 型であることだけを検査し、呼び出し側がその引数を渡す。
+        """
+        result = self._binding_for(function.result, function)
+        parameters = [
+            self._binding_for(parameter.type, parameter)
+            for parameter in function.parms
+        ]
+        if receiver_class is not None:
+            if not parameters:
+                raise self.error_at(
+                    ErrorCode.CHECK_IMPL_RECEIVER_MISSING, function
+                )
+            match parameters[0]:
+                case AtomicBinding(type=UserDefType(name=name)) if name == receiver_class.name:
+                    pass
+                case _:
+                    raise self.error_at(
+                        ErrorCode.CHECK_IMPL_RECEIVER_TYPE_MISMATCH,
+                        function.parms[0],
+                    )
+        return AppliedBinding(
+            AtomicBinding(
+                FunctionType(),
+                self.context.general.default_right,
+                self.context.general.default_policy,
+                False,
+            ),
+            [result, *parameters],
+        )
+
     def _declare_global(
         self, table: dict[str, SymbolT], symbol: SymbolT, node: ASTNode
     ) -> None:
@@ -322,7 +414,7 @@ class Collector:
     def _declare_type(self, name: str, node: ASTNode) -> None:
         if name in self.context.general.types:
             raise self.error_at(ErrorCode.COLLECT_DUPLICATE_TYPE, node, name)
-        self.context.general.types[name] = UserDefType()
+        self.context.general.types[name] = UserDefType(name)
 
     def _binding_for(
         self, type_node: _base.TypeNode, node: ASTNode

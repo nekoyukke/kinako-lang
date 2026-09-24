@@ -25,5 +25,11 @@ def add_buildins(target: context) -> None:
 
     target.general.types["none"] = type.NoneType()
 
+    target.general.rights["owner"] = right.Right(right.AccessKind.WRITE, right.IdentityKind.UNIQUE)
+    target.general.rights["mutable"] = right.Right(right.AccessKind.READ, right.IdentityKind.UNIQUE)
+    target.general.rights["shared"] = right.Right(right.AccessKind.READ, right.IdentityKind.SHARED)
+    target.general.rights["multi"] = right.Right(right.AccessKind.WRITE, right.IdentityKind.SHARED)
+
+
     target.general.default_policy = policy.NoPolicy()
     target.general.default_right = right.Right(right.AccessKind.READ, right.IdentityKind.UNIQUE)

@@ -17,6 +17,7 @@ from src.core.symbol import (
     ParameterSymbol,
     StructSymbol,
     Symbol,
+    VarSymbol,
 )
 from src.utils.error.resolve import KinakoResolveError
 from src.utils.error.code import ErrorCode
@@ -34,9 +35,11 @@ class Resolver:
         self.context = resolved_context
         self.source = source
         self.current_scope = Scope(parent=None, symbol={})
+        self.scope_depth = 0
 
     def resolve(self, program: _stmt.Program) -> ResolveResult:
         self.current_scope = Scope(parent=None, symbol={})
+        self.scope_depth = 0
 
         # Top-level functions are visible to one another regardless of order.
         for statement in program.stmt:
@@ -51,6 +54,8 @@ class Resolver:
         match statement:
             case _stmt.LetStmt() | _stmt.RefStmt() | _stmt.MoveStmt():
                 self._resolve_local(statement)
+            case _stmt.VarDeclStmt():
+                self._resolve_var(statement)
             case _stmt.FunctionStmt():
                 self._resolve_function(statement, already_declared=top_level)
             case _stmt.RecordDeclStmt():
@@ -91,6 +96,12 @@ class Resolver:
             self._resolve_type(statement.contract, statement)
         if statement.right is not None:
             self._resolve_expr(statement.right)
+        self._declare(self._symbol_for(statement), statement)
+
+    def _resolve_var(self, statement: _stmt.VarDeclStmt) -> None:
+        """var の型を解決してから、通常のローカル名として登録する。"""
+        if statement.type is not None:
+            self._resolve_type(statement.type, statement)
         self._declare(self._symbol_for(statement), statement)
 
     def _resolve_function(
@@ -198,6 +209,11 @@ class Resolver:
                 self.context.general.sym[expression] = symbol
             case _expr.MemberExpr():
                 self._resolve_expr(expression.expr)
+            case _expr.CallExpr():
+                # callee と各引数を先に解決して、再帰呼び出しも通常の Variable として扱う。
+                self._resolve_expr(expression.callee)
+                for argument in expression.args:
+                    self._resolve_expr(argument)
             case _expr.IndexExpr():
                 self._resolve_expr(expression.expr)
                 self._resolve_expr(expression.index)
@@ -217,19 +233,24 @@ class Resolver:
 
     def _enter_scope(self) -> None:
         self.current_scope = Scope(parent=self.current_scope, symbol={})
+        self.scope_depth += 1
 
     def _leave_scope(self, node: ASTNode) -> None:
         parent = self.current_scope.parent
         if parent is None:
             raise self.error_at(ErrorCode.INTERNAL_INVALID_SCOPE_EXIT, node)
         self.current_scope = parent
+        self.scope_depth -= 1
 
     def _declare(self, symbol: Symbol, node: ASTNode) -> None:
-        if not isinstance(symbol, (LetSymbol, ParameterSymbol, FunctionSymbol)):
+        if not isinstance(
+            symbol, (LetSymbol, VarSymbol, ParameterSymbol, FunctionSymbol)
+        ):
             raise self.error_at(ErrorCode.RESOLVE_INVALID_LEXICAL_SYMBOL, node)
         if symbol.name in self.current_scope.symbol:
             raise self.error_at(ErrorCode.RESOLVE_DUPLICATE_DECLARATION, node, symbol.name)
         self.current_scope.symbol[symbol.name] = symbol
+        self.context.general.scope_depth[symbol] = self.scope_depth
 
     def _symbol_for(self, node: ASTNode) -> Symbol:
         symbol = self.context.general.sym.get(node)

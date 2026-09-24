@@ -46,6 +46,8 @@ class GeneralContext:
     default_right: Right
 
     sym: ClassVar[dict[ASTNode, Symbol]] = {}
+    # Symbol が宣言された字句スコープの深さ。root は 0、内側ほど大きい。
+    scope_depth: ClassVar[dict[Symbol, int]] = {}
     binding: dict[Expr, Binding]
 
     types: ClassVar[dict[str, TypeDef]] = {}
@@ -80,6 +82,8 @@ class GeneralContext:
 
     # Impl members
     defs_by_name: ClassVar[dict[ImplSymbol, dict[str, DefSymbol]]] = {}
+    # Record の field 表と同じく、Class ごとに def を名前から引けるようにする。
+    class_defs_by_name: ClassVar[dict[ClassSymbol, dict[str, DefSymbol]]] = {}
 
     @staticmethod
     def _node_label(node: ASTNode) -> str:
@@ -104,6 +108,7 @@ class GeneralContext:
                 ("default_policy", self.default_policy),
                 ("default_right", self.default_right),
                 ("sym", self._symbol_entries()),
+                ("scope_depth", self.scope_depth),
                 ("binding", self._binding_entries()),
                 ("types", self.types),
                 ("rights", self.rights),
@@ -126,6 +131,7 @@ class GeneralContext:
                 ("rq_interface", self.rq_interface),
                 ("rqs_by_name", self.rqs_by_name),
                 ("defs_by_name", self.defs_by_name),
+                ("class_defs_by_name", self.class_defs_by_name),
             ],
         )
 
