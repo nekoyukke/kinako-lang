@@ -41,6 +41,11 @@ class NoneType(TypeDef):
         return "none"
 
 @dataclass
+class NullType(TypeDef):
+    def __repr__(self) -> str:
+        return "null"
+
+@dataclass
 class FunctionType(TypeDef):
     """(T0, T1, ...) -> result_T => function[result_T, T0, T1, ...]"""
     def __repr__(self) -> str:

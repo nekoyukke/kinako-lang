@@ -46,14 +46,14 @@ class Checker:
     def validate_right(self, right:Right, binding:Binding) -> bool | ErrorCode:
         match (binding):
             case AtomicBinding():
-                return binding.right.access.value > right.access.value and \
-                       binding.right.identity.value > right.identity.value
+                return binding.right.access.value >= right.access.value and \
+                       binding.right.identity.value >= right.identity.value
             case AppliedBinding():
                 return self.validate_right(right, binding.atomic)
             case _:
                 return ErrorCode.CHECK_UNSUPPORTED_AST
 
-    def is_same_type(self, t1:Binding, t2:Binding) -> bool | ErrorCode:
+    def is_same_type(self, t1:Binding, t2:Binding, track_refs:bool = False) -> bool | ErrorCode:
         if type(t1) != type(t2):
             return False
         if isinstance(t1, AtomicBinding) and isinstance(t2, AtomicBinding):
@@ -65,7 +65,7 @@ class Checker:
         if isinstance(t1, AppliedBinding) and isinstance(t2, AppliedBinding):
             if t1.atomic.type != t2.atomic.type:
                 return False
-            if t1.atomic.is_ref != t2.atomic.is_ref:
+            if (t1.atomic.is_ref != t2.atomic.is_ref) and track_refs:
                 return False
             if len(t1.args) != len(t2.args):
                 return False
@@ -91,38 +91,6 @@ class Checker:
                 return type_
             case _:
                 return ErrorCode.CHECK_UNSUPPORTED_AST
-
-    def is_assignable(
-        self,
-        target: Binding,
-        value: Binding,
-        node: ASTNode,
-    ) -> bool | ErrorCode:
-        if self.is_same_type(target, value):
-            return True
-
-        target_type = self.get_binding_type(target, node)
-        value_type = self.get_binding_type(value, node)
-        if isinstance(target_type, ErrorCode):
-            return target_type
-        if isinstance(value_type, ErrorCode):
-            return value_type
-
-        match target_type, value_type:
-            # 10 -> int / long / i32 ...
-            case IntType(), IntegerImmediateType():
-                return True
-
-            # 1.5 -> float
-            case FloatType(), DecimalImmediateType():
-                return True
-
-            # 10 -> float
-            case FloatType(), IntegerImmediateType():
-                return True
-
-            case _:
-                return False
 
     def split_right(
         self,
@@ -449,23 +417,23 @@ class Checker:
         right = self.visit_expression(expression.right)
         left = self.visit_expression(expression.left)
         # エラーチェック
-        if not isinstance(right, AtomicBinding):
+        if not isinstance(right.binding, AtomicBinding):
             raise self.error_at(ErrorCode.CHECK_LOGIC_OPERAND_NOT_BOOLEAN, expression.right, )
-        if not isinstance(left, AtomicBinding):
+        if not isinstance(left.binding, AtomicBinding):
             raise self.error_at(ErrorCode.CHECK_LOGIC_OPERAND_NOT_BOOLEAN, expression.left)
-        if not isinstance(right.type, BoolType):
+        if not isinstance(right.binding.type, BoolType):
             raise self.error_at(ErrorCode.CHECK_LOGIC_OPERAND_NOT_BOOLEAN, expression.right)
-        if not isinstance(left.type, BoolType):
+        if not isinstance(left.binding.type, BoolType):
             raise self.error_at(ErrorCode.CHECK_LOGIC_OPERAND_NOT_BOOLEAN, expression.left)
         # Right
         if not self.unwrap_error(
             expression.left,
-            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), left)
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), left.binding)
         ):
             raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.left)
         if not self.unwrap_error(
             expression.right,
-            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), right)
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), right.binding)
         ):
             raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.right)
         return ExprResult(
@@ -554,8 +522,24 @@ class Checker:
         )
 
     def visit_assign_expression(self, expression: _expr.AssignExpr) -> ExprResult:
-        # this
-        pass
+        left = self.visit_expression(expression.left)
+        right = self.visit_expression(expression.right)
+        left_atomic = self.get_atomic_binding(left.binding)
+        right_atomic = self.get_atomic_binding(right.binding)
+        if isinstance(right_atomic, ErrorCode):
+            raise self.error_at(right_atomic, expression.right)
+        if isinstance(left_atomic, ErrorCode):
+            raise self.error_at(left_atomic, expression.left)
+        if not self.unwrap_error(
+            expression.left,
+            self.validate_right(Right(AccessKind.WRITE, IdentityKind.UNIQUE), left_atomic)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.left)
+        if not self.unwrap_error(
+            expression.right,
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), right_atomic)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.right)
 
     def visit_move_expression(self, expression: _expr.MoveExpr) -> ExprResult:
         # this
@@ -566,25 +550,104 @@ class Checker:
         pass
 
     def visit_container_immediate(self, expression: _expr.ContainerImmediate) -> ExprResult:
-        # this
-        pass
+        element_binding: Binding | None = None
+
+        for value in expression.value:
+            result = self.visit_expression(value)
+            atomic = self.get_atomic_binding(result.binding)
+            if isinstance(atomic, ErrorCode):
+                raise self.error_at(atomic, value)
+
+            if not self.unwrap_error(
+                value,
+                self.validate_right(
+                    Right(AccessKind.READ, IdentityKind.min()),
+                    atomic,
+                ),
+            ):
+                raise self.error_at(ErrorCode.CHECK_CANT_READ, value)
+
+            if element_binding is None:
+                element_binding = result.binding
+                continue
+
+            if not self.unwrap_error(
+                value,
+                self.is_same_type(element_binding, result.binding),
+            ):
+                raise self.error_at(
+                    ErrorCode.CHECK_CONTAINER_ELEMENT_TYPE_MISMATCH,
+                    value,
+                )
+        if element_binding is None:
+
+            return ExprResult(
+                AtomicBinding(
+                    ContainerImmediateType(),
+                    self.context.general.default_right,
+                    self.context.general.default_policy,
+                    False,
+                )
+            )
+        
+        return ExprResult(
+            AppliedBinding(
+                AtomicBinding(
+                    ContainerImmediateType(),
+                    self.context.general.default_right,
+                    self.context.general.default_policy,
+                    False,
+                ),
+                [element_binding]
+            )
+        )
 
     def visit_string_immediate(self, expression: _expr.StringImmediate) -> ExprResult:
-        # this
-        pass
+        return ExprResult(
+            AtomicBinding(
+                    StringImmediateType(),
+                    self.context.general.default_right,
+                    self.context.general.default_policy,
+                    False,
+            )
+        )
 
     def visit_integer_immediate(self, expression: _expr.IntegerImmediate) -> ExprResult:
-        # this
-        pass
+        return ExprResult(
+            AtomicBinding(
+                    IntegerImmediateType(),
+                    self.context.general.default_right,
+                    self.context.general.default_policy,
+                    False,
+            )
+        )
 
     def visit_decimal_immediate(self, expression: _expr.DecimalImmediate) -> ExprResult:
-        # this
-        pass
+        return ExprResult(
+            AtomicBinding(
+                    DecimalImmediateType(),
+                    self.context.general.default_right,
+                    self.context.general.default_policy,
+                    False,
+            )
+        )
 
     def visit_none_immediate(self, expression: _expr.NoneImmediate) -> ExprResult:
-        # this
-        pass
+        return ExprResult(
+            AtomicBinding(
+                    NoneType(),
+                    self.context.general.default_right,
+                    self.context.general.default_policy,
+                    False,
+            )
+        )
 
     def visit_null_immediate(self, expression: _expr.NullImmediate) -> ExprResult:
-        # this
-        pass
+        return ExprResult(
+            AtomicBinding(
+                    NullType(),
+                    self.context.general.default_right,
+                    self.context.general.default_policy,
+                    False,
+            )
+        )

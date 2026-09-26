@@ -12,7 +12,7 @@ from src.core.binding.binding import AppliedBinding, AtomicBinding, Binding
 from src.core.binding.policy.policy import Policy
 from src.core.binding.right.right import AccessKind, IdentityKind, Right
 from src.core.binding.type.type import FunctionType, UserDefType
-from src.core.context.context import DeclarationContext, GeneralContext, Context
+from src.core.context.context import DeclarationContext, GeneralContext, BuildinContext, Context
 from src.core.span import Span
 from src.core.symbol import (
     ClassSymbol,
@@ -52,14 +52,7 @@ class Collector:
         self, collected_context: Context | None = None, source: str = ""
     ) -> None:
         if collected_context is None:
-            collected_context = Context(
-                DeclarationContext(),
-                GeneralContext(
-                    default_policy=Policy(),
-                    default_right=Right(AccessKind.NON, IdentityKind.SHARED),
-                    binding={},
-                ),
-            )
+            raise RuntimeWarning("Is not good. =<^.^>=")
         self.context = collected_context
         self.source = source
         self._pending_bindings: list[tuple[Symbol, _base.TypeNode, ASTNode]] = []
