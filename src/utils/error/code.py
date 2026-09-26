@@ -87,7 +87,7 @@ class ErrorCode(Enum):
     CHECK_POLICY_VIOLATION = ("K4033", "policy violation")  # Policy 違反
     CHECK_GENERIC_COMP = ("K4034", "comparison operands cannot be generic")  # 比較演算にジェネリック型は使えない
     CHECK_GENERIC_IDEN = ("K4035", "identity operands cannot be generic")  # 同値演算にジェネリック型は使えない
-    CHECK_CANT_READ = ("K4036", "can not read right")  # Right 読めない
+    CHECK_CANT_READ = ("K4036", "Right is not read in this context")  # Right 読めない
     CHECK_IDENTITY_OPERAND_GENERIC = ("K4037", "identity operands cannot be generic")  # 同一性比較の型不一致
     CHECK_COMPARISON_OPERAND_GENERIC = ("K4038", "comparison operands cannot be generic")  # 比較演算にジェネリック型は使えない
     CHECK_PARTIAL_MOVE_FORBIDDEN = ("K4039", "cannot move a field or indexed element")  # field/index の move は禁止
@@ -101,8 +101,7 @@ class ErrorCode(Enum):
     CHECK_REFERENCE_TARGET_OUTLIVES_SOURCE = ("K4047", "reference target must not outlive its source")  # ref の借用先が貸与元より長命
     CHECK_REFERENCE_TARGET_ALREADY_ACTIVE = ("K4048", "reference target already has an active reference")  # ref の借用先は二重にできない
     CHECK_CONDITIONAL_MOVE_MISMATCH = ("K4049", "move differs between control-flow paths")  # 分岐経路ごとに move 元／先が異なる
-    CHECK_CONTROL_FLOW_STATE_MISMATCH = ("K4050", "state differs between control-flow paths")  # 分岐経路ごとに初期化状態が異なる
-    CHECK_UNINITIALIZED_READ = ("K4051", "cannot read an uninitialized value")  # 初期化前の値を読めない
+    CHECK_CLS_NOTHAS_INTERFACE = ("K4050", "The required interface is not implemented")  # その演算で必要なinterfaceを実装していない
 
     def __init__(self, code: str, message: str) -> None:
         self.code = code

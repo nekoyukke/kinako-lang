@@ -21,7 +21,6 @@ from src.core.symbol import (
     ImplSymbol,
     InterfaceSymbol,
     LetSymbol,
-    ModuleSymbol,
     ParameterSymbol,
     RQSymbol,
     RecordSymbol,
@@ -97,11 +96,6 @@ class Collector:
         top_level: bool = False,
     ) -> None:
         match statement:
-            case _stmt.ImportStmt():
-                self.context.general.sym[statement] = ModuleSymbol(
-                    self._span(statement), statement.path[-1].name
-                )
-                return
             case _stmt.UnsafeStmt():
                 self._collect_statement(statement.inner, top_level=top_level)
                 return

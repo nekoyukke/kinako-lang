@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypeVar
+T = TypeVar("T")
 
 from src.core.ast import expr as _expr
 from src.core.ast import stmt as _stmt
@@ -18,6 +20,11 @@ from src.core.binding.binding import *
 class CheckResult:
     context: Context
 
+@dataclass
+class ExprResult:
+    binding: Binding
+    sym: symbol.Symbol | None = None
+
 class Checker:
     """Traverse a resolved program and perform semantic checks."""
 
@@ -25,6 +32,8 @@ class Checker:
         self.context = checked_context
         self.source = source
         self.return_type:TypeDef
+        self.moved: list[symbol.Symbol] = []
+        self.binding: list[dict[symbol.Symbol, Binding]] = [] # Scope的
 
     def error_at(
         self, code: ErrorCode, node: ASTNode, detail: str | None = None
@@ -34,6 +43,155 @@ class Checker:
             message = f"{message}: {detail}"
         return KinakoCheckerError(message, node.line, node.col, self.source, node.len)
 
+    def validate_right(self, right:Right, binding:Binding) -> bool | ErrorCode:
+        match (binding):
+            case AtomicBinding():
+                return binding.right.access.value > right.access.value and \
+                       binding.right.identity.value > right.identity.value
+            case AppliedBinding():
+                return self.validate_right(right, binding.atomic)
+            case _:
+                return ErrorCode.CHECK_UNSUPPORTED_AST
+
+    def is_same_type(self, t1:Binding, t2:Binding) -> bool | ErrorCode:
+        if type(t1) != type(t2):
+            return False
+        if isinstance(t1, AtomicBinding) and isinstance(t2, AtomicBinding):
+            if t1.type != t2.type:
+                return False
+            if t1.is_ref != t2.is_ref:
+                return False
+            return True
+        if isinstance(t1, AppliedBinding) and isinstance(t2, AppliedBinding):
+            if t1.atomic.type != t2.atomic.type:
+                return False
+            if t1.atomic.is_ref != t2.atomic.is_ref:
+                return False
+            if len(t1.args) != len(t2.args):
+                return False
+            for i,j in zip(t1.args, t2.args):
+                is_same = self.is_same_type(i,j)
+                if isinstance(is_same, ErrorCode):
+                    return is_same
+                if not is_same:
+                    return False
+            return True
+        return ErrorCode.CHECK_UNSUPPORTED_AST
+
+    def unwrap_error(self, node:ASTNode, code:T|ErrorCode, message:str|None = None) -> T:
+        if isinstance(code, ErrorCode):
+            raise self.error_at(code, node, message)
+        return code
+
+    def get_binding_type(self, binding: Binding, node: ASTNode) -> TypeDef|ErrorCode:
+        match binding:
+            case AtomicBinding(type=type_):
+                return type_
+            case AppliedBinding(atomic=AtomicBinding(type=type_)):
+                return type_
+            case _:
+                return ErrorCode.CHECK_UNSUPPORTED_AST
+
+    def is_assignable(
+        self,
+        target: Binding,
+        value: Binding,
+        node: ASTNode,
+    ) -> bool | ErrorCode:
+        if self.is_same_type(target, value):
+            return True
+
+        target_type = self.get_binding_type(target, node)
+        value_type = self.get_binding_type(value, node)
+        if isinstance(target_type, ErrorCode):
+            return target_type
+        if isinstance(value_type, ErrorCode):
+            return value_type
+
+        match target_type, value_type:
+            # 10 -> int / long / i32 ...
+            case IntType(), IntegerImmediateType():
+                return True
+
+            # 1.5 -> float
+            case FloatType(), DecimalImmediateType():
+                return True
+
+            # 10 -> float
+            case FloatType(), IntegerImmediateType():
+                return True
+
+            case _:
+                return False
+
+    def split_right(
+        self,
+        source: Right,
+        requested: Right,
+        node: ASTNode,
+    ) -> tuple[Right, Right]:
+        if requested.access.value > source.access.value:
+            raise self.error_at(ErrorCode.CHECK_INVALID_REFERENCE, node)
+    
+        if requested.identity is IdentityKind.UNIQUE:
+            raise self.error_at(ErrorCode.CHECK_INVALID_REFERENCE, node)
+    
+        borrowed = Right(requested.access, IdentityKind.SHARED)
+    
+        # もともと shared なら、host 側の権限は減らさない。
+        if source.identity == IdentityKind.SHARED:
+            return (
+                Right(source.access, IdentityKind.SHARED),
+                borrowed,
+            )
+    
+        if requested.access == AccessKind.WRITE:
+            remaining_access = AccessKind.NON
+        else:
+            remaining_access = AccessKind.READ
+    
+        return (
+            Right(remaining_access, IdentityKind.SHARED),
+            borrowed,
+        )
+
+    def get_binding_sym(self, sym:symbol.Symbol) -> Binding | ErrorCode:
+        for i in reversed(self.binding):
+            if sym in i:
+                return i[sym]
+        match (sym):
+            case symbol.LetSymbol():
+                return self.context.contract.let[sym]
+            case symbol.VarSymbol():
+                return self.context.contract.var[sym]
+            case symbol.DefSymbol():
+                return self.context.contract.define[sym]
+            case symbol.FunctionSymbol():
+                return self.context.contract.function[sym]
+            case symbol.ParameterSymbol():
+                return self.context.contract.parameter[sym]
+            case symbol.RQSymbol():
+                return self.context.contract.rq[sym]
+            case _:
+                return ErrorCode.INTERNAL_INVALID_COLLECTED_SYMBOL
+
+    def has_interface(self, sym:symbol.InterfaceSymbol, user_type_name:str) -> bool:
+        clssym = self.context.general.classes[user_type_name]
+        impls = self.context.general.impl_cls[clssym]
+        interfaces = [self.context.general.interface_impl[i] for i in impls if i in self.context.general.interface_impl]
+        if sym in interfaces:
+            return True
+        return False
+
+    def get_atomic_binding(self, binding:Binding) -> AtomicBinding | ErrorCode:
+        match (binding):
+            case AtomicBinding():
+                return binding
+            case AppliedBinding():
+                return binding.atomic
+            case _:
+                return ErrorCode.CHECK_UNSUPPORTED_AST
+    
     def check(self, program: _stmt.Program) -> CheckResult:
         # this
         self.visit_program(program)
@@ -161,7 +319,7 @@ class Checker:
         # this
         pass
 
-    def visit_expression(self, expression: _expr.Expr) -> Binding:
+    def visit_expression(self, expression: _expr.Expr) -> ExprResult:
         # this
         match expression:
             case _expr.Variable():
@@ -200,87 +358,233 @@ class Checker:
                 raise self.error_at(ErrorCode.CHECK_UNSUPPORTED_AST, expression)
 
 
-    def visit_variable(self, expression: _expr.Variable) -> Binding:
+    def visit_variable(self, expression: _expr.Variable) -> ExprResult:
         # this]
         sym = self.context.general.sym[expression]
-        match (sym):
-            case symbol.LetSymbol():
-                return self.context.contract.let[sym]
-            case symbol.VarSymbol():
-                return self.context.contract.var[sym]
-            case symbol.DefSymbol():
-                return self.context.contract.define[sym]
-            case symbol.FunctionSymbol():
-                return self.context.contract.function[sym]
-            case symbol.ParameterSymbol():
-                return self.context.contract.parameter[sym]
-            case symbol.RQSymbol():
-                return self.context.contract.rq[sym]
-            case _:
-                raise self.error_at(ErrorCode.INTERNAL_INVALID_COLLECTED_SYMBOL, expression)
+        binding = self.get_binding_sym(sym)
+        if isinstance(binding, ErrorCode):
+            raise self.error_at(binding, expression)
+        return ExprResult(
+            binding,
+            sym
+        )
 
-    def visit_member_expression(self, expression: _expr.MemberExpr) -> Binding:
+    def visit_member_expression(self, expression: _expr.MemberExpr) -> ExprResult:
         # this
         pass
 
-    def visit_index_expression(self, expression: _expr.IndexExpr) -> Binding:
+    def visit_index_expression(self, expression: _expr.IndexExpr) -> ExprResult:
         # this
         pass
 
-    def visit_arithmetic_expression(self, expression: _expr.ArithmeticExpr) -> Binding:
-        # this
+    def visit_arithmetic_expression(self, expression: _expr.ArithmeticExpr) -> ExprResult:
         right = self.visit_expression(expression.right)
         left = self.visit_expression(expression.left)
+        right_atomic = self.get_atomic_binding(right.binding)
+        left_atomic = self.get_atomic_binding(left.binding)
+        if isinstance(right_atomic, ErrorCode):
+            raise self.error_at(right_atomic, expression.right)
+        if isinstance(left_atomic, ErrorCode):
+            raise self.error_at(left_atomic, expression.left)
+        # エラーチェック
+        if not isinstance(right_atomic.type, IntegerImmediateType|DecimalImmediateType|IntType|FloatType):
+            if not isinstance(right_atomic.type, UserDefType):
+                raise self.error_at(ErrorCode.CHECK_ARITHMETIC_OPERAND_NOT_NUMERIC, expression.right)
+            if not (self.has_interface(self.context.buildin.integer_impl, right_atomic.type.name) or\
+               self.has_interface(self.context.buildin.decimal_impl, right_atomic.type.name)):
+                raise self.error_at(ErrorCode.CHECK_CLS_NOTHAS_INTERFACE, expression.right)
+            
+        if not isinstance(left_atomic.type, IntegerImmediateType|DecimalImmediateType|IntType|FloatType):
+            if not isinstance(left_atomic.type, UserDefType):
+                raise self.error_at(ErrorCode.CHECK_ARITHMETIC_OPERAND_NOT_NUMERIC, expression.left)
+            if not (self.has_interface(self.context.buildin.integer_impl, left_atomic.type.name) or\
+               self.has_interface(self.context.buildin.decimal_impl, left_atomic.type.name)):
+                raise self.error_at(ErrorCode.CHECK_CLS_NOTHAS_INTERFACE, expression.left)
+        # Right
+        if not self.unwrap_error(
+            expression.left,
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), left_atomic)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.left)
+        if not self.unwrap_error(
+            expression.right,
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), right_atomic)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.right)
+        # 暗黙的な型変換
+        is_r_float = False
+        if isinstance(right_atomic.type, DecimalImmediateType|FloatType):
+            is_r_float = True
+        if isinstance(right_atomic.type, UserDefType):
+            if self.has_interface(self.context.buildin.decimal_impl, right_atomic.type.name):
+                is_r_float = True
+
+        is_l_float = False
+        if isinstance(left_atomic.type, DecimalImmediateType|FloatType):
+            is_l_float = True
+        if isinstance(left_atomic.type, UserDefType):
+            if self.has_interface(self.context.buildin.decimal_impl, left_atomic.type.name):
+                is_l_float = True
+
+        if is_l_float or is_r_float:
+            # float返す
+            return ExprResult(
+                AtomicBinding(
+                    DecimalImmediateType(),
+                    self.context.general.default_right,
+                    self.context.general.default_policy,
+                    False
+                )
+            )
+        return ExprResult(
+            AtomicBinding(
+                IntegerImmediateType(),
+                self.context.general.default_right,
+                self.context.general.default_policy,
+                False
+            )
+        )
+
+    def visit_logic_expression(self, expression: _expr.LogicExpr) -> ExprResult:
+        right = self.visit_expression(expression.right)
+        left = self.visit_expression(expression.left)
+        # エラーチェック
         if not isinstance(right, AtomicBinding):
-            raise self.error_at(ErrorCode.CHECK_GENERIC_ARITHMETIC, expression.right)
+            raise self.error_at(ErrorCode.CHECK_LOGIC_OPERAND_NOT_BOOLEAN, expression.right, )
         if not isinstance(left, AtomicBinding):
-            # this
-            pass
+            raise self.error_at(ErrorCode.CHECK_LOGIC_OPERAND_NOT_BOOLEAN, expression.left)
+        if not isinstance(right.type, BoolType):
+            raise self.error_at(ErrorCode.CHECK_LOGIC_OPERAND_NOT_BOOLEAN, expression.right)
+        if not isinstance(left.type, BoolType):
+            raise self.error_at(ErrorCode.CHECK_LOGIC_OPERAND_NOT_BOOLEAN, expression.left)
+        # Right
+        if not self.unwrap_error(
+            expression.left,
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), left)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.left)
+        if not self.unwrap_error(
+            expression.right,
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), right)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.right)
+        return ExprResult(
+            AtomicBinding(
+                BoolType(),
+                self.context.general.default_right,
+                self.context.general.default_policy,
+                False
+            )
+        )
 
-    def visit_logic_expression(self, expression: _expr.LogicExpr) -> Binding:
+    def visit_identity_expression(self, expression: _expr.IdentityExpr) -> ExprResult:
+        right = self.visit_expression(expression.right)
+        left = self.visit_expression(expression.left)
+        right_atomic = self.get_atomic_binding(right.binding)
+        left_atomic = self.get_atomic_binding(left.binding)
+        if isinstance(right_atomic, ErrorCode):
+            raise self.error_at(right_atomic, expression.right)
+        if isinstance(left_atomic, ErrorCode):
+            raise self.error_at(left_atomic, expression.left)
+        # エラーチェック
+        if right_atomic.type != left_atomic.type:
+            raise self.error_at(ErrorCode.CHECK_IDENTITY_OPERAND_TYPE_MISMATCH, expression)
+        if isinstance(right_atomic.type, UserDefType):
+            if not self.has_interface(self.context.buildin.identity_impl, right_atomic.type.name):
+                raise self.error_at(ErrorCode.CHECK_CLS_NOTHAS_INTERFACE, expression.right)
+        if isinstance(left_atomic.type, UserDefType):
+            if not self.has_interface(self.context.buildin.identity_impl, left_atomic.type.name):
+                raise self.error_at(ErrorCode.CHECK_CLS_NOTHAS_INTERFACE, expression.left)
+        # Right
+        if not self.unwrap_error(
+            expression.left,
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), left_atomic)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.left)
+        if not self.unwrap_error(
+            expression.right,
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), right_atomic)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.right)
+        return ExprResult(
+            AtomicBinding(
+                BoolType(),
+                self.context.general.default_right,
+                self.context.general.default_policy,
+                False
+            )
+        )
+
+    def visit_comparison_expression(self, expression: _expr.CompExpr) -> ExprResult:
+        right = self.visit_expression(expression.right)
+        left = self.visit_expression(expression.left)
+        right_atomic = self.get_atomic_binding(right.binding)
+        left_atomic = self.get_atomic_binding(left.binding)
+        if isinstance(right_atomic, ErrorCode):
+            raise self.error_at(right_atomic, expression.right)
+        if isinstance(left_atomic, ErrorCode):
+            raise self.error_at(left_atomic, expression.left)
+        # エラーチェック
+        if right_atomic.type != left_atomic.type:
+            raise self.error_at(ErrorCode.CHECK_IDENTITY_OPERAND_TYPE_MISMATCH, expression)
+        if isinstance(right_atomic.type, UserDefType):
+            if not self.has_interface(self.context.buildin.identity_impl, right_atomic.type.name):
+                raise self.error_at(ErrorCode.CHECK_CLS_NOTHAS_INTERFACE, expression.right)
+        if isinstance(left_atomic.type, UserDefType):
+            if not self.has_interface(self.context.buildin.identity_impl, left_atomic.type.name):
+                raise self.error_at(ErrorCode.CHECK_CLS_NOTHAS_INTERFACE, expression.left)
+        # Right
+        if not self.unwrap_error(
+            expression.left,
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), left_atomic)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.left)
+        if not self.unwrap_error(
+            expression.right,
+            self.validate_right(Right(AccessKind.READ, IdentityKind.min()), right_atomic)
+        ):
+            raise self.error_at(ErrorCode.CHECK_CANT_READ, expression.right)
+        return ExprResult(
+            AtomicBinding(
+                BoolType(),
+                self.context.general.default_right,
+                self.context.general.default_policy,
+                False
+            )
+        )
+
+    def visit_assign_expression(self, expression: _expr.AssignExpr) -> ExprResult:
         # this
         pass
 
-    def visit_identity_expression(self, expression: _expr.IdentityExpr) -> Binding:
+    def visit_move_expression(self, expression: _expr.MoveExpr) -> ExprResult:
         # this
         pass
 
-    def visit_comparison_expression(self, expression: _expr.CompExpr) -> Binding:
+    def visit_ref_expression(self, expression: _expr.RefExpr) -> ExprResult:
         # this
         pass
 
-    def visit_assign_expression(self, expression: _expr.AssignExpr) -> Binding:
+    def visit_container_immediate(self, expression: _expr.ContainerImmediate) -> ExprResult:
         # this
         pass
 
-    def visit_move_expression(self, expression: _expr.MoveExpr) -> Binding:
+    def visit_string_immediate(self, expression: _expr.StringImmediate) -> ExprResult:
         # this
         pass
 
-    def visit_ref_expression(self, expression: _expr.RefExpr) -> Binding:
+    def visit_integer_immediate(self, expression: _expr.IntegerImmediate) -> ExprResult:
         # this
         pass
 
-    def visit_container_immediate(self, expression: _expr.ContainerImmediate) -> Binding:
+    def visit_decimal_immediate(self, expression: _expr.DecimalImmediate) -> ExprResult:
         # this
         pass
 
-    def visit_string_immediate(self, expression: _expr.StringImmediate) -> Binding:
+    def visit_none_immediate(self, expression: _expr.NoneImmediate) -> ExprResult:
         # this
         pass
 
-    def visit_integer_immediate(self, expression: _expr.IntegerImmediate) -> Binding:
-        # this
-        pass
-
-    def visit_decimal_immediate(self, expression: _expr.DecimalImmediate) -> Binding:
-        # this
-        pass
-
-    def visit_none_immediate(self, expression: _expr.NoneImmediate) -> Binding:
-        # this
-        pass
-
-    def visit_null_immediate(self, expression: _expr.NullImmediate) -> Binding:
+    def visit_null_immediate(self, expression: _expr.NullImmediate) -> ExprResult:
         # this
         pass

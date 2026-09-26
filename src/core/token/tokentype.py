@@ -35,7 +35,6 @@ class TokenType(Enum):
     ELIF = r'elif\b'
     FOR = r'for\b'
     WHILE = r'while\b'
-    IMPORT = r'import\b'
     FN = r'fn\b'
     RETURN = r'return\b'
     IN = r'in\b'
@@ -43,6 +42,7 @@ class TokenType(Enum):
     CLASS = r'class\b'
     MOVE = r'move\b'
     REF = r'ref\b'
+    AS = r'as\b'
     UNSAFE = r'unsafe\b'
     ASM = r'__asm__\b'
 

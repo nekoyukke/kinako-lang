@@ -6,11 +6,12 @@ from dataclasses import dataclass
 
 from src.core.ast.stmt import Program
 from src.core.context.context import Context
-from src.frontend.checker import Checker
+from src.frontend.checker.checker import Checker
 from src.frontend.collector import Collector
 from src.frontend.lexer.lexer import Lexer
 from src.frontend.parser.parser import Parser
 from src.frontend.resolver import Resolver
+from src.frontend.buildin import add_buildins
 
 
 @dataclass(frozen=True)

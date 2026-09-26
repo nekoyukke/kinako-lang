@@ -16,8 +16,12 @@ class AtomicBinding(Binding):
     right: Right
     policy: Policy
     is_ref: bool
+    def __repr__(self) -> str:
+        return f"{"ref "*self.is_ref}{self.type}{"@"+self.right.__repr__()}{"@"+self.policy.__repr__()}"
 
 @dataclass
 class AppliedBinding(Binding):
     atomic: AtomicBinding
     args: list[Binding]
+    def __repr__(self) -> str:
+        return f"{self.atomic}[{", ".join([i.__repr__() for i in self.args])}]"

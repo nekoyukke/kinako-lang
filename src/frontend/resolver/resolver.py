@@ -14,7 +14,6 @@ from src.core.symbol import (
     FunctionSymbol,
     ImplSymbol,
     LetSymbol,
-    ModuleSymbol,
     ParameterSymbol,
     StructSymbol,
     Symbol,
@@ -53,8 +52,6 @@ class Resolver:
 
     def _resolve_statement(self, statement: _stmt.Stmt, *, top_level: bool = False) -> None:
         match statement:
-            case _stmt.ImportStmt():
-                self._resolve_import(statement)
             case _stmt.UnsafeStmt():
                 self._resolve_statement(statement.inner, top_level=top_level)
             case _stmt.LetStmt() | _stmt.RefStmt() | _stmt.MoveStmt():
@@ -83,14 +80,8 @@ class Resolver:
                 self._resolve_expr(statement.value)
             case _stmt.ExprStmt():
                 self._resolve_expr(statement.expr)
-            case _stmt.AsmStmt():
-                return
             case _:
                 raise self.error_at(ErrorCode.INTERNAL_UNSUPPORTED_AST, statement)
-
-    def _resolve_import(self, statement: _stmt.ImportStmt) -> None:
-        symbol = self._symbol_for(statement)
-        self._declare(symbol, statement)
 
     def _resolve_block(self, block: _stmt.Block) -> None:
         self._enter_scope()
@@ -225,6 +216,9 @@ class Resolver:
                 self._resolve_expr(expression.callee)
                 for argument in expression.args:
                     self._resolve_expr(argument)
+            case _expr.CastExpr():
+                self._resolve_expr(expression.expr)
+                self._resolve_type(expression.target, expression)
             case _expr.IndexExpr():
                 self._resolve_expr(expression.expr)
                 self._resolve_expr(expression.index)
@@ -255,7 +249,7 @@ class Resolver:
 
     def _declare(self, symbol: Symbol, node: ASTNode) -> None:
         if not isinstance(
-            symbol, (LetSymbol, VarSymbol, ParameterSymbol, FunctionSymbol, ModuleSymbol)
+            symbol, (LetSymbol, VarSymbol, ParameterSymbol, FunctionSymbol)
         ):
             raise self.error_at(ErrorCode.RESOLVE_INVALID_LEXICAL_SYMBOL, node)
         if symbol.name in self.current_scope.symbol:

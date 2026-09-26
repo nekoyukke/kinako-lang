@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 
-from src.core.symbol.symbol import FunctionSymbol, LetSymbol, ParameterSymbol, ModuleSymbol
+from src.core.symbol.symbol import FunctionSymbol, LetSymbol, ParameterSymbol
 
 
-ScopedSymbol = LetSymbol | ParameterSymbol | FunctionSymbol | ModuleSymbol
+ScopedSymbol = LetSymbol | ParameterSymbol | FunctionSymbol
 
 @dataclass
 class Scope():

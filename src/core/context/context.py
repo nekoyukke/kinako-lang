@@ -84,8 +84,6 @@ class GeneralContext:
     defs_by_name: ClassVar[dict[ImplSymbol, dict[str, DefSymbol]]] = {}
     # Record の field 表と同じく、Class ごとに def を名前から引けるようにする。
     class_defs_by_name: ClassVar[dict[ClassSymbol, dict[str, DefSymbol]]] = {}
-    # import namespace が公開する top-level function。ModuleSymbol は実行時値ではない。
-    module_exports: ClassVar[dict[ModuleSymbol, dict[str, FunctionSymbol]]] = {}
 
     @staticmethod
     def _node_label(node: ASTNode) -> str:
@@ -138,9 +136,17 @@ class GeneralContext:
         )
 
 @dataclass
+class BuildinContext:
+    integer_impl: InterfaceSymbol
+    decimal_impl: InterfaceSymbol
+    identity_impl: InterfaceSymbol
+    comparison_impl: InterfaceSymbol
+
+@dataclass
 class Context:
     contract: DeclarationContext
     general: GeneralContext
+    buildin: BuildinContext
 
     def __repr__(self) -> str:
         return _format_context(

@@ -37,12 +37,6 @@ class Stmt(ASTNode, ABC):
 
 
 @dataclass(repr=False, eq=False)
-class ImportStmt(Stmt):
-    """`import std.io;` の module path。"""
-    path: list[Identifier]
-
-
-@dataclass(repr=False, eq=False)
 class CompoundStmt(Stmt, ABC):
     pass
 
@@ -54,7 +48,7 @@ class SimpleStmt(Stmt, ABC):
 
 @dataclass(repr=False, eq=False)
 class UnsafeStmt(SimpleStmt):
-    """`unsafe <SimpleStmt>`。内側の意味検査を明示的に無効化する。"""
+    """`unsafe <SimpleStmt>`。checker が中身を検査せず通すための境界。"""
 
     inner: SimpleStmt
 
@@ -70,12 +64,6 @@ class DeclStmt(SimpleStmt, ABC):
 @dataclass(repr=False, eq=False)
 class ExprStmt(SimpleStmt, ABC):
     expr: Expr
-
-
-@dataclass(repr=False, eq=False)
-class AsmStmt(SimpleStmt):
-    """LLVM inline assembly のテンプレートをそのまま保持する文。"""
-    template: str
 
 # =========================
 # Local declarations

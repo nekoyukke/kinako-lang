@@ -63,9 +63,3 @@ class StructSymbol(Symbol):
 class ClassSymbol(Symbol):
     pass
 
-
-@dataclass(frozen=True)
-class ModuleSymbol(Symbol):
-    """`import foo.bar` によって導入される compile-time namespace。"""
-
-    pass
