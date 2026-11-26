@@ -1,1 +1,1 @@
-from src.core.ast.expr.expr import Stmt # type:ignore
+from src.core.ast.stmt.stmt import Stmt # type:ignore
