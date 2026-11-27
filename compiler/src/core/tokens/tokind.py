@@ -21,7 +21,7 @@ class Tokenkind(Enum):
     
     LET = (r"let(?![a-zA-Z0-9_])", False)
     
-    PTR = (r"let(?![a-zA-Z0-9_])", False)
+    PTR = (r"ptr(?![a-zA-Z0-9_])", False)
     REF = (r"ref(?![a-zA-Z0-9_])", False)
     MOV = (r"mov(?![a-zA-Z0-9_])", False)
     
@@ -31,11 +31,19 @@ class Tokenkind(Enum):
     RECORD = (r"record(?![a-zA-Z0-9_])", False)
     REUCT = (r"struct(?![a-zA-Z0-9_])", False)
 
-    INTERFACE = (r"record(?![a-zA-Z0-9_])", False)
-    IMPL = (r"struct(?![a-zA-Z0-9_])", False)
+    INTERFACE = (r"interface(?![a-zA-Z0-9_])", False)
+    IMPL = (r"impl(?![a-zA-Z0-9_])", False)
 
-    CLASS = (r"record(?![a-zA-Z0-9_])", False)
+    CLASS = (r"class(?![a-zA-Z0-9_])", False)
 
+    BREAK = (r"break(?![a-zA-Z0-9_])", False)
+    CONTINUE = (r"continue(?![a-zA-Z0-9_])", False)
+    RETURN = (r"return(?![a-zA-Z0-9_])", False)
+    YIELD = (r"yield(?![a-zA-Z0-9_])", False)
+    
+    DEFER = (r"defer(?![a-zA-Z0-9_])", False)
+    UNSAFE = (r"unsafe(?![a-zA-Z0-9_])", False)
+    
     # 識別子・数値
     IDENTIFIER = (r"[a-zA-Z_][a-zA-Z0-9_]*", False)
     NUMBER = (r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", False)
