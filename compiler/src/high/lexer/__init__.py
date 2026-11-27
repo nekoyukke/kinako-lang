@@ -1,1 +1,1 @@
-from src.high.lexer.lexer import Lexer # type:ignore
+from src.high.lexer.lexer import Lexer  # type: ignore

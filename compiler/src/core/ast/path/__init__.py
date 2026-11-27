@@ -1,1 +1,1 @@
-from src.core.ast.path.path import Path # type:ignore
+from src.core.ast.path.path import Path  # type: ignore

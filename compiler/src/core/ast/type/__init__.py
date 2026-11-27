@@ -1,1 +1,8 @@
-from src.core.ast.type.type import TypeExpr, PtrTypeExpr, RefTypeExpr, PathTypeExpr, ArrayTypeExpr, SliceTypeExpr # type:ignore
+from src.core.ast.type.type import (
+    ArrayTypeExpr,
+    PathTypeExpr,
+    PtrTypeExpr,
+    RefTypeExpr,
+    SliceTypeExpr,
+    TypeExpr,
+)  # type: ignore

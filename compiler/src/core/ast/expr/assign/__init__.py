@@ -1,1 +1,1 @@
-from src.core.ast.expr.assign.assign import AssignExpr # type:ignore
+from src.core.ast.expr.assign.assign import AssignExpr  # type: ignore

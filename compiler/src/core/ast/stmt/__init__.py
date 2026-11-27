@@ -1,4 +1,4 @@
-from src.core.ast.stmt.stmt import Stmt # type:ignore
+from src.core.ast.stmt.stmt import Stmt  # type: ignore
 from src.core.ast.stmt.class_ import *
 from src.core.ast.stmt.control_flow import *
 from src.core.ast.stmt.defer import *

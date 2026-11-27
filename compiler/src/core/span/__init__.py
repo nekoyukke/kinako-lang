@@ -1,1 +1,1 @@
-from src.core.span.span import Span # type:ignore
+from src.core.span.span import Span  # type: ignore
